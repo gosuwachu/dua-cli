@@ -132,7 +132,7 @@ pub trait Metadata {
     fn modified(&self) -> io::Result<SystemTime>;
 }
 
-pub trait WalkerDir {
+pub trait Entry {
     fn depth(&self) -> usize;
     fn path(&self) -> PathBuf;
     fn file_name(&self) -> PathBuf;
@@ -141,5 +141,5 @@ pub trait WalkerDir {
 }
 
 pub trait Walker {
-    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn WalkerDir>, io::Error>>>;
+    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
 }

@@ -46,11 +46,11 @@ impl Metadata for FSMetadata {
     }
 }
 
-pub struct JWalkWalkerDir {
+struct JWalkEntry {
     entry: jwalk::DirEntry<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>
 }
 
-impl WalkerDir for JWalkWalkerDir {
+impl Entry for JWalkEntry {
     fn depth(&self) -> usize {
         self.entry.depth
     }
@@ -75,7 +75,9 @@ impl WalkerDir for JWalkWalkerDir {
                             Ok(Box::new(FSMetadata { metadata: metadata.clone() }))
                         },
                         Err(err) => {
-                            Err(io::Error::from_raw_os_error(0))
+                            Err(io::Error::new(
+                                err.io_error().map(|err| err.kind()).unwrap_or(io::ErrorKind::Other),
+                                ""))
                         }
                 })
             },
@@ -89,7 +91,7 @@ impl WalkerDir for JWalkWalkerDir {
 pub struct JWalkWalker {}
 
 impl Walker for JWalkWalker {
-    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn WalkerDir>, io::Error>>> {
+    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
         Box::new(JWalkWalkerIterator::new(path, root_device_id, options))
     }
 }
@@ -98,6 +100,10 @@ pub struct JWalkWalkerIterator {
     options: WalkOptions,
     walk_dir_iter: WalkDirIter,
 }
+
+
+type WalkDir = jwalk::WalkDirGeneric<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
+type WalkDirIter = jwalk::DirEntryIter<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
 
 impl JWalkWalkerIterator {
     fn new(root: &Path, root_device_id: u64, options: WalkOptions) -> JWalkWalkerIterator {
@@ -156,13 +162,13 @@ impl JWalkWalkerIterator {
 }
 
 impl Iterator for JWalkWalkerIterator {
-    type Item = Result<Box<dyn WalkerDir>, io::Error>;
+    type Item = Result<Box<dyn Entry>, io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.walk_dir_iter.next()?;
         match entry {
             Ok(entry) => {
-                Some(Ok(Box::new(JWalkWalkerDir{
+                Some(Ok(Box::new(JWalkEntry{
                     entry
                 })))
             },
@@ -172,6 +178,3 @@ impl Iterator for JWalkWalkerIterator {
         }
     }
 }
-
-type WalkDir = jwalk::WalkDirGeneric<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
-type WalkDirIter = jwalk::DirEntryIter<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
