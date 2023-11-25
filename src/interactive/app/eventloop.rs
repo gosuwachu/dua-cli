@@ -8,7 +8,7 @@ use anyhow::Result;
 use crosstermion::input::{input_channel, Event, Key};
 use dua::{
     traverse::{Traversal, TreeIndex},
-    WalkOptions, WalkResult, JWalkWalker
+    JWalkWalker, WalkOptions, WalkResult,
 };
 use std::{collections::BTreeMap, path::PathBuf};
 use tui::backend::Backend;
@@ -253,8 +253,8 @@ impl TerminalApp {
         let mut state = None::<AppState>;
         let mut received_events = false;
 
-        let walker = Box::new(JWalkWalker{
-            options: options.clone()
+        let walker = Box::new(JWalkWalker {
+            options: options.clone(),
         });
         let traversal = Traversal::from_walker(walker, options, input_paths, |traversal| {
             let s = match state.as_mut() {

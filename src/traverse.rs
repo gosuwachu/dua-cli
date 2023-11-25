@@ -1,5 +1,5 @@
-use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle};
 use crate::fs_walk::{WalkOptions, Walker};
+use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle};
 use anyhow::Result;
 use filesize::PathExt;
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
@@ -67,7 +67,7 @@ pub struct Traversal {
 
 impl Traversal {
     pub fn from_walker(
-        mut walker: Box<dyn Walker>,
+        walker: Box<dyn Walker>,
         mut walk_options: WalkOptions,
         input: Vec<PathBuf>,
         mut update: impl FnMut(&mut Traversal) -> Result<bool>,
@@ -107,9 +107,7 @@ impl Traversal {
                     continue;
                 }
             };
-            for entry in walker
-                .into_iter(path.as_ref(), device_id)
-            {
+            for entry in walker.into_iter(path.as_ref(), device_id) {
                 t.entries_traversed += 1;
                 let mut data = EntryData::default();
                 match entry {
@@ -125,20 +123,20 @@ impl Traversal {
                         match &entry.metadata() {
                             Some(Ok(ref m)) => {
                                 if !m.is_dir()
-                                    && (walk_options.count_hard_links || inodes.add_raw(m.dev(), m.ino(), m.nlink()))
+                                    && (walk_options.count_hard_links
+                                        || inodes.add_raw(m.dev(), m.ino(), m.nlink()))
                                     && (walk_options.cross_filesystems
                                         || crossdev::is_same_device_raw(device_id, m.dev()))
                                 {
                                     if walk_options.apparent_size {
                                         file_size = m.apparent_size() as u128;
                                     } else {
-                                        file_size = m.size_on_disk().unwrap_or_else(
-                                            |_| {
-                                                t.io_errors += 1;
-                                                data.metadata_io_error = true;
-                                                0
-                                            },
-                                        ) as u128;
+                                        file_size = m.size_on_disk().unwrap_or_else(|_| {
+                                            t.io_errors += 1;
+                                            data.metadata_io_error = true;
+                                            0
+                                        })
+                                            as u128;
                                     }
                                 }
 

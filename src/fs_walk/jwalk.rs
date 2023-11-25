@@ -1,17 +1,17 @@
 use super::*;
 use crate::crossdev;
+use ::jwalk;
 use filesize::PathExt;
+use std::io;
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::io;
-use ::jwalk;
 
-struct JWalkMetadata<'a>  {
+struct JWalkMetadata<'a> {
     entry: &'a JWalkEntry,
-    metadata: std::fs::Metadata
+    metadata: std::fs::Metadata,
 }
 
-impl <'a>  Metadata for JWalkMetadata<'a> {
+impl<'a> Metadata for JWalkMetadata<'a> {
     fn is_dir(&self) -> bool {
         self.metadata.is_dir()
     }
@@ -36,10 +36,13 @@ impl <'a>  Metadata for JWalkMetadata<'a> {
     fn size_on_disk(&self) -> io::Result<u64> {
         self.entry.file_name().size_on_disk_fast(&self.metadata)
     }
-    
+
     #[cfg(windows)]
     fn size_on_disk(&self) -> io::Result<u64> {
-        self.entry.parent_path().join(self.entry.file_name()).size_on_disk_fast(&self.metadata)
+        self.entry
+            .parent_path()
+            .join(self.entry.file_name())
+            .size_on_disk_fast(&self.metadata)
     }
 
     fn modified(&self) -> io::Result<SystemTime> {
@@ -48,7 +51,7 @@ impl <'a>  Metadata for JWalkMetadata<'a> {
 }
 
 struct JWalkEntry {
-    entry: jwalk::DirEntry<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>
+    entry: jwalk::DirEntry<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>,
 }
 
 impl Entry for JWalkEntry {
@@ -70,21 +73,19 @@ impl Entry for JWalkEntry {
 
     fn metadata(&self) -> Option<Result<Box<dyn Metadata + '_>, io::Error>> {
         match &self.entry.client_state {
-            Some(metadata) => {
-                Some(match metadata {
-                        Ok(metadata) => {
-                            Ok(Box::new(JWalkMetadata { entry: &self, metadata: metadata.clone() }))
-                        },
-                        Err(err) => {
-                            Err(io::Error::new(
-                                err.io_error().map(|err| err.kind()).unwrap_or(io::ErrorKind::Other),
-                                ""))
-                        }
-                })
-            },
-            _ => {
-                None
-            }
+            Some(metadata) => Some(match metadata {
+                Ok(metadata) => Ok(Box::new(JWalkMetadata {
+                    entry: &self,
+                    metadata: metadata.clone(),
+                })),
+                Err(err) => Err(io::Error::new(
+                    err.io_error()
+                        .map(|err| err.kind())
+                        .unwrap_or(io::ErrorKind::Other),
+                    "",
+                )),
+            }),
+            _ => None,
         }
     }
 }
@@ -94,7 +95,11 @@ pub struct JWalkWalker {
 }
 
 impl Walker for JWalkWalker {
-    fn into_iter(&self, path: &Path, root_device_id: u64) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
+    fn into_iter(
+        &self,
+        path: &Path,
+        root_device_id: u64,
+    ) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
         Box::new(JWalkIterator::new(path, root_device_id, &self.options))
     }
 }
@@ -154,10 +159,9 @@ impl JWalkIterator {
                         .into(),
                     busy_timeout: None,
                 },
-            }).into_iter();
-        JWalkIterator {
-            walk_dir_iter
-        }
+            })
+            .into_iter();
+        JWalkIterator { walk_dir_iter }
     }
 }
 
@@ -167,14 +171,8 @@ impl Iterator for JWalkIterator {
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.walk_dir_iter.next()?;
         match entry {
-            Ok(entry) => {
-                Some(Ok(Box::new(JWalkEntry{
-                    entry
-                })))
-            },
-            Err(err) => {
-                Some(Err(err.into()))
-            }
+            Ok(entry) => Some(Ok(Box::new(JWalkEntry { entry }))),
+            Err(err) => Some(Err(err.into())),
         }
     }
 }

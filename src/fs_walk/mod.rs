@@ -1,8 +1,8 @@
+use byte_unit::{n_gb_bytes, n_gib_bytes, n_mb_bytes, n_mib_bytes, ByteUnit};
+use std::fmt;
 use std::io;
 use std::path::Path;
-use byte_unit::{n_gb_bytes, n_gib_bytes, n_mb_bytes, n_mib_bytes, ByteUnit};
 use std::path::PathBuf;
-use std::fmt;
 use std::time::SystemTime;
 
 pub mod jwalk;
@@ -141,5 +141,9 @@ pub trait Entry {
 }
 
 pub trait Walker {
-    fn into_iter(&self, path: &Path, root_device_id: u64) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
+    fn into_iter(
+        &self,
+        path: &Path,
+        root_device_id: u64,
+    ) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
 }

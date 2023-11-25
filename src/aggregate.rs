@@ -1,5 +1,5 @@
+use crate::fs_walk::{jwalk, WalkOptions, Walker};
 use crate::{crossdev, InodeFilter, Throttle, WalkResult};
-use crate::fs_walk::{WalkOptions, jwalk, Walker};
 use anyhow::Result;
 use filesize::PathExt;
 use owo_colors::{AnsiColors as Color, OwoColorize};
@@ -28,8 +28,8 @@ pub fn aggregate(
     let mut inodes = InodeFilter::default();
     let progress = Throttle::new(Duration::from_millis(100), Duration::from_secs(1).into());
 
-    let walker = Box::new(jwalk::JWalkWalker{
-        options: walk_options.clone()
+    let walker = Box::new(jwalk::JWalkWalker {
+        options: walk_options.clone(),
     });
 
     for path in paths.into_iter() {
@@ -57,7 +57,8 @@ pub fn aggregate(
                     let file_size = match &entry.metadata() {
                         Some(Ok(ref m))
                             if !m.is_dir()
-                                && (walk_options.count_hard_links || inodes.add_raw(m.dev(), m.ino(), m.nlink()))
+                                && (walk_options.count_hard_links
+                                    || inodes.add_raw(m.dev(), m.ino(), m.nlink()))
                                 && (walk_options.cross_filesystems
                                     || crossdev::is_same_device_raw(device_id, m.dev())) =>
                         {
