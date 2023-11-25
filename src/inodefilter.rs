@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::common::Metadata;
 
 #[derive(Debug, Default, Clone)]
 pub struct InodeFilter {
@@ -6,6 +7,10 @@ pub struct InodeFilter {
 }
 
 impl InodeFilter {
+    pub fn add_raw(&mut self, dev: u64, ino: u64, nlink: u64) -> bool {
+        self.add_dev_inode((dev, ino), nlink)
+    }
+
     #[cfg(unix)]
     pub fn add(&mut self, metadata: &std::fs::Metadata) -> bool {
         use std::os::unix::fs::MetadataExt;

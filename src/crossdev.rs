@@ -7,6 +7,10 @@ pub fn init(path: &Path) -> io::Result<u64> {
     path.metadata().map(|m| m.dev())
 }
 
+pub fn is_same_device_raw(device_id: u64, meta_dev: u64) -> bool {
+    meta_dev == device_id
+}
+
 #[cfg(unix)]
 pub fn is_same_device(device_id: u64, meta: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
