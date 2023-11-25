@@ -108,7 +108,7 @@ impl Traversal {
                 }
             };
             for entry in walker
-                .into_iter(path.as_ref(), device_id, walk_options.clone())
+                .into_iter(path.as_ref(), device_id)
             {
                 t.entries_traversed += 1;
                 let mut data = EntryData::default();
@@ -132,7 +132,7 @@ impl Traversal {
                                     if walk_options.apparent_size {
                                         file_size = m.apparent_size() as u128;
                                     } else {
-                                        file_size = m.size_on_disk(entry.parent_path(), &data.name).unwrap_or_else(
+                                        file_size = m.size_on_disk().unwrap_or_else(
                                             |_| {
                                                 t.io_errors += 1;
                                                 data.metadata_io_error = true;
@@ -227,155 +227,6 @@ impl Traversal {
         t.elapsed = Some(t.start.elapsed());
         Ok(Some(t))
     }
-
-    // pub fn from_walk(
-    //     mut walk_options: WalkOptions,
-    //     input: Vec<PathBuf>,
-    //     mut update: impl FnMut(&mut Traversal) -> Result<bool>,
-    // ) -> Result<Option<Traversal>> {
-    //     let mut t = {
-    //         let mut tree = Tree::new();
-    //         let root_index = tree.add_node(EntryData::default());
-    //         Traversal {
-    //             tree,
-    //             root_index,
-    //             entries_traversed: 0,
-    //             start: std::time::Instant::now(),
-    //             elapsed: None,
-    //             io_errors: 0,
-    //             total_bytes: None,
-    //         }
-    //     };
-
-    //     let (mut previous_node_idx, mut parent_node_idx) = (t.root_index, t.root_index);
-    //     let mut sizes_per_depth_level = Vec::new();
-    //     let mut current_size_at_depth: u128 = 0;
-    //     let mut previous_depth = 0;
-    //     let mut inodes = InodeFilter::default();
-
-    //     let throttle = Throttle::new(Duration::from_millis(250), None);
-    //     if walk_options.threads == 0 {
-    //         // avoid using the global rayon pool, as it will keep a lot of threads alive after we are done.
-    //         // Also means that we will spin up a bunch of threads per root path, instead of reusing them.
-    //         walk_options.threads = num_cpus::get();
-    //     }
-
-    //     for path in input.into_iter() {
-    //         let device_id = match crossdev::init(path.as_ref()) {
-    //             Ok(id) => id,
-    //             Err(_) => {
-    //                 t.io_errors += 1;
-    //                 continue;
-    //             }
-    //         };
-    //         for entry in walk_options
-    //             .iter_from_path(path.as_ref(), device_id)
-    //             .into_iter()
-    //         {
-    //             t.entries_traversed += 1;
-    //             let mut data = EntryData::default();
-    //             match entry {
-    //                 Ok(entry) => {
-    //                     data.name = if entry.depth < 1 {
-    //                         path.clone()
-    //                     } else {
-    //                         entry.file_name.into()
-    //                     };
-    //                     let file_size = match &entry.client_state {
-    //                         Some(Ok(ref m))
-    //                             if !m.is_dir()
-    //                                 && (walk_options.count_hard_links || inodes.add(m))
-    //                                 && (walk_options.cross_filesystems
-    //                                     || crossdev::is_same_device(device_id, m)) =>
-    //                         {
-    //                             if walk_options.apparent_size {
-    //                                 m.len()
-    //                             } else {
-    //                                 size_on_disk(&entry.parent_path, &data.name, m).unwrap_or_else(
-    //                                     |_| {
-    //                                         t.io_errors += 1;
-    //                                         data.metadata_io_error = true;
-    //                                         0
-    //                                     },
-    //                                 )
-    //                             }
-    //                         }
-    //                         Some(Ok(_)) => 0,
-    //                         Some(Err(_)) => {
-    //                             t.io_errors += 1;
-    //                             data.metadata_io_error = true;
-    //                             0
-    //                         }
-    //                         None => 0, // a directory
-    //                     } as u128;
-
-    //                     match (entry.depth, previous_depth) {
-    //                         (n, p) if n > p => {
-    //                             sizes_per_depth_level.push(current_size_at_depth);
-    //                             current_size_at_depth = file_size;
-    //                             parent_node_idx = previous_node_idx;
-    //                         }
-    //                         (n, p) if n < p => {
-    //                             for _ in n..p {
-    //                                 set_size_or_panic(
-    //                                     &mut t.tree,
-    //                                     parent_node_idx,
-    //                                     current_size_at_depth,
-    //                                 );
-    //                                 current_size_at_depth +=
-    //                                     pop_or_panic(&mut sizes_per_depth_level);
-    //                                 parent_node_idx = parent_or_panic(&mut t.tree, parent_node_idx);
-    //                             }
-    //                             current_size_at_depth += file_size;
-    //                             set_size_or_panic(
-    //                                 &mut t.tree,
-    //                                 parent_node_idx,
-    //                                 current_size_at_depth,
-    //                             );
-    //                         }
-    //                         _ => {
-    //                             current_size_at_depth += file_size;
-    //                         }
-    //                     };
-
-    //                     data.size = file_size;
-    //                     let entry_index = t.tree.add_node(data);
-
-    //                     t.tree.add_edge(parent_node_idx, entry_index, ());
-    //                     previous_node_idx = entry_index;
-    //                     previous_depth = entry.depth;
-    //                 }
-    //                 Err(_) => {
-    //                     if previous_depth == 0 {
-    //                         data.name = path.clone();
-    //                         let entry_index = t.tree.add_node(data);
-    //                         t.tree.add_edge(parent_node_idx, entry_index, ());
-    //                     }
-
-    //                     t.io_errors += 1
-    //                 }
-    //             }
-
-    //             if throttle.can_update() && update(&mut t)? {
-    //                 return Ok(None);
-    //             }
-    //         }
-    //     }
-
-    //     sizes_per_depth_level.push(current_size_at_depth);
-    //     current_size_at_depth = 0;
-    //     for _ in 0..previous_depth {
-    //         current_size_at_depth += pop_or_panic(&mut sizes_per_depth_level);
-    //         set_size_or_panic(&mut t.tree, parent_node_idx, current_size_at_depth);
-    //         parent_node_idx = parent_or_panic(&mut t.tree, parent_node_idx);
-    //     }
-    //     let root_size = t.recompute_root_size();
-    //     set_size_or_panic(&mut t.tree, t.root_index, root_size);
-    //     t.total_bytes = Some(root_size);
-
-    //     t.elapsed = Some(t.start.elapsed());
-    //     Ok(Some(t))
-    // }
 
     fn recompute_root_size(&self) -> u128 {
         self.tree

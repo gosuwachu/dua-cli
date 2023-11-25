@@ -6,11 +6,12 @@ use std::path::{Path, PathBuf};
 use std::io;
 use ::jwalk;
 
-struct FSMetadata {
+struct JWalkMetadata<'a>  {
+    entry: &'a JWalkEntry,
     metadata: std::fs::Metadata
 }
 
-impl Metadata for FSMetadata {
+impl <'a>  Metadata for JWalkMetadata<'a> {
     fn is_dir(&self) -> bool {
         self.metadata.is_dir()
     }
@@ -32,13 +33,13 @@ impl Metadata for FSMetadata {
     }
 
     #[cfg(not(windows))]
-    fn size_on_disk(&self, _parent: &Path, name: &Path) -> io::Result<u64> {
-        name.size_on_disk_fast(&self.metadata)
+    fn size_on_disk(&self) -> io::Result<u64> {
+        self.entry.file_name().size_on_disk_fast(&self.metadata)
     }
     
     #[cfg(windows)]
-    fn size_on_disk(&self, parent: &Path, name: &Path) -> io::Result<u64> {
-        parent.join(name).size_on_disk_fast(&self.metadata)
+    fn size_on_disk(&self) -> io::Result<u64> {
+        self.entry.parent_path().join(self.entry.file_name()).size_on_disk_fast(&self.metadata)
     }
 
     fn modified(&self) -> io::Result<SystemTime> {
@@ -67,12 +68,12 @@ impl Entry for JWalkEntry {
         self.entry.parent_path()
     }
 
-    fn metadata(&self) -> Option<Result<Box<dyn Metadata>, io::Error>> {
+    fn metadata(&self) -> Option<Result<Box<dyn Metadata + '_>, io::Error>> {
         match &self.entry.client_state {
             Some(metadata) => {
                 Some(match metadata {
                         Ok(metadata) => {
-                            Ok(Box::new(FSMetadata { metadata: metadata.clone() }))
+                            Ok(Box::new(JWalkMetadata { entry: &self, metadata: metadata.clone() }))
                         },
                         Err(err) => {
                             Err(io::Error::new(
@@ -88,25 +89,25 @@ impl Entry for JWalkEntry {
     }
 }
 
-pub struct JWalkWalker {}
+pub struct JWalkWalker {
+    pub options: WalkOptions,
+}
 
 impl Walker for JWalkWalker {
-    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
-        Box::new(JWalkWalkerIterator::new(path, root_device_id, options))
+    fn into_iter(&self, path: &Path, root_device_id: u64) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
+        Box::new(JWalkIterator::new(path, root_device_id, &self.options))
     }
 }
 
-pub struct JWalkWalkerIterator {
-    options: WalkOptions,
+pub struct JWalkIterator {
     walk_dir_iter: WalkDirIter,
 }
-
 
 type WalkDir = jwalk::WalkDirGeneric<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
 type WalkDirIter = jwalk::DirEntryIter<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
 
-impl JWalkWalkerIterator {
-    fn new(root: &Path, root_device_id: u64, options: WalkOptions) -> JWalkWalkerIterator {
+impl JWalkIterator {
+    fn new(root: &Path, root_device_id: u64, options: &WalkOptions) -> JWalkIterator {
         let walk_dir_iter = WalkDir::new(root)
             .follow_links(false)
             .sort(match options.sorting {
@@ -154,14 +155,13 @@ impl JWalkWalkerIterator {
                     busy_timeout: None,
                 },
             }).into_iter();
-        JWalkWalkerIterator {
-            options,
+        JWalkIterator {
             walk_dir_iter
         }
     }
 }
 
-impl Iterator for JWalkWalkerIterator {
+impl Iterator for JWalkIterator {
     type Item = Result<Box<dyn Entry>, io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

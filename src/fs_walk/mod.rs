@@ -128,7 +128,7 @@ pub trait Metadata {
     fn ino(&self) -> u64;
     fn nlink(&self) -> u64;
     fn apparent_size(&self) -> u64;
-    fn size_on_disk(&self, parent_path: &Path, name: &Path) -> io::Result<u64>;
+    fn size_on_disk(&self) -> io::Result<u64>;
     fn modified(&self) -> io::Result<SystemTime>;
 }
 
@@ -137,9 +137,9 @@ pub trait Entry {
     fn path(&self) -> PathBuf;
     fn file_name(&self) -> PathBuf;
     fn parent_path(&self) -> &Path;
-    fn metadata(&self) -> Option<Result<Box<dyn Metadata>, io::Error>>;
+    fn metadata(&self) -> Option<Result<Box<dyn Metadata + '_>, io::Error>>;
 }
 
 pub trait Walker {
-    fn into_iter(&self, path: &Path, root_device_id: u64, options: WalkOptions) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
+    fn into_iter(&self, path: &Path, root_device_id: u64) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
 }

@@ -28,7 +28,9 @@ pub fn aggregate(
     let mut inodes = InodeFilter::default();
     let progress = Throttle::new(Duration::from_millis(100), Duration::from_secs(1).into());
 
-    let walker = Box::new(jwalk::JWalkWalker{});
+    let walker = Box::new(jwalk::JWalkWalker{
+        options: walk_options.clone()
+    });
 
     for path in paths.into_iter() {
         num_roots += 1;
@@ -43,7 +45,7 @@ pub fn aggregate(
                 continue;
             }
         };
-        for entry in walker.into_iter(path.as_ref(), device_id, walk_options.clone()) {
+        for entry in walker.into_iter(path.as_ref(), device_id) {
             stats.entries_traversed += 1;
             progress.throttled(|| {
                 if let Some(err) = err.as_mut() {
@@ -62,7 +64,7 @@ pub fn aggregate(
                             if walk_options.apparent_size {
                                 m.apparent_size()
                             } else {
-                                m.size_on_disk(entry.parent_path(), &entry.path()).unwrap_or_else(|_| {
+                                m.size_on_disk().unwrap_or_else(|_| {
                                     num_errors += 1;
                                     0
                                 })
