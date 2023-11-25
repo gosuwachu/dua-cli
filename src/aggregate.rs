@@ -1,4 +1,5 @@
-use crate::{crossdev, InodeFilter, Throttle, WalkOptions, WalkResult};
+use crate::{crossdev, InodeFilter, Throttle, WalkResult};
+use crate::fs_walk::{WalkOptions, jwalk, Walker};
 use anyhow::Result;
 use filesize::PathExt;
 use owo_colors::{AnsiColors as Color, OwoColorize};
@@ -27,6 +28,8 @@ pub fn aggregate(
     let mut inodes = InodeFilter::default();
     let progress = Throttle::new(Duration::from_millis(100), Duration::from_secs(1).into());
 
+    let walker = Box::new(jwalk::JWalkWalker{});
+
     for path in paths.into_iter() {
         num_roots += 1;
         let mut num_bytes = 0u128;
@@ -40,7 +43,7 @@ pub fn aggregate(
                 continue;
             }
         };
-        for entry in walk_options.iter_from_path(path.as_ref(), device_id) {
+        for entry in walker.into_iter(path.as_ref(), device_id, walk_options.clone()) {
             stats.entries_traversed += 1;
             progress.throttled(|| {
                 if let Some(err) = err.as_mut() {
@@ -49,17 +52,17 @@ pub fn aggregate(
             });
             match entry {
                 Ok(entry) => {
-                    let file_size = match entry.client_state {
+                    let file_size = match &entry.metadata() {
                         Some(Ok(ref m))
                             if !m.is_dir()
-                                && (walk_options.count_hard_links || inodes.add(m))
+                                && (walk_options.count_hard_links || inodes.add_raw(m.dev(), m.ino(), m.nlink()))
                                 && (walk_options.cross_filesystems
-                                    || crossdev::is_same_device(device_id, m)) =>
+                                    || crossdev::is_same_device_raw(device_id, m.dev())) =>
                         {
                             if walk_options.apparent_size {
-                                m.len()
+                                m.apparent_size()
                             } else {
-                                entry.path().size_on_disk_fast(m).unwrap_or_else(|_| {
+                                m.size_on_disk(entry.parent_path(), &entry.path()).unwrap_or_else(|_| {
                                     num_errors += 1;
                                     0
                                 })

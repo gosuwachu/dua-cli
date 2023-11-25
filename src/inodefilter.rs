@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use crate::common::Metadata;
 
 #[derive(Debug, Default, Clone)]
 pub struct InodeFilter {

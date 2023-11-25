@@ -1,4 +1,5 @@
-use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle, WalkOptions, Walker};
+use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle};
+use crate::fs_walk::{WalkOptions, Walker};
 use anyhow::Result;
 use filesize::PathExt;
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
