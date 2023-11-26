@@ -1,12 +1,10 @@
-use crate::fs_walk::{WalkOptions, Walker};
+use crate::fs_walk::{WalkOptions, Walker, Entry, Metadata};
 use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle};
 use anyhow::Result;
 use filesize::PathExt;
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
 use std::{
     fmt,
-    fs::Metadata,
-    io,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -67,7 +65,7 @@ pub struct Traversal {
 
 impl Traversal {
     pub fn from_walker(
-        walker: Box<dyn Walker>,
+        mut walker: impl Walker,
         mut walk_options: WalkOptions,
         input: Vec<PathBuf>,
         mut update: impl FnMut(&mut Traversal) -> Result<bool>,
@@ -232,16 +230,6 @@ impl Traversal {
             .map(|idx| get_size_or_panic(&self.tree, idx))
             .sum()
     }
-}
-
-#[cfg(not(windows))]
-fn size_on_disk(_parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
-    name.size_on_disk_fast(meta)
-}
-
-#[cfg(windows)]
-fn size_on_disk(parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
-    parent.join(name).size_on_disk_fast(meta)
 }
 
 fn set_size_or_panic(tree: &mut Tree, node_idx: TreeIndex, current_size_at_depth: u128) {

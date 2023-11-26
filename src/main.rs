@@ -2,6 +2,7 @@
 use anyhow::Result;
 use clap::Parser;
 use dua::TraversalSorting;
+use dua::JWalkWalker;
 use std::{fs, io, io::Write, path::PathBuf, process};
 
 mod crossdev;
@@ -29,6 +30,9 @@ fn main() -> Result<()> {
         sorting: TraversalSorting::None,
         cross_filesystems: !opt.stay_on_filesystem,
         ignore_dirs: opt.ignore_dirs,
+    };
+    let walker = JWalkWalker {
+        options: walk_options.clone(),
     };
     let res = match opt.command {
         #[cfg(any(feature = "tui-unix", feature = "tui-crossplatform"))]
@@ -98,6 +102,7 @@ fn main() -> Result<()> {
             let (res, stats) = dua::aggregate(
                 stdout_locked,
                 stderr_if_tty(),
+                walker,
                 walk_options,
                 !no_total,
                 !no_sort,
@@ -114,6 +119,7 @@ fn main() -> Result<()> {
             dua::aggregate(
                 stdout_locked,
                 stderr_if_tty(),
+                walker,
                 walk_options,
                 true,
                 true,

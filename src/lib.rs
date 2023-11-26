@@ -1,5 +1,6 @@
 #![cfg_attr(windows, feature(windows_by_handle))]
 #![forbid(unsafe_code)]
+#![feature(impl_trait_in_assoc_type)]
 
 extern crate jwalk;
 

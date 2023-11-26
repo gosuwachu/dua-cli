@@ -253,9 +253,9 @@ impl TerminalApp {
         let mut state = None::<AppState>;
         let mut received_events = false;
 
-        let walker = Box::new(JWalkWalker {
+        let walker = JWalkWalker {
             options: options.clone(),
-        });
+        };
         let traversal = Traversal::from_walker(walker, options, input_paths, |traversal| {
             let s = match state.as_mut() {
                 Some(s) => {

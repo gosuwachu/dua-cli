@@ -1,7 +1,6 @@
-use crate::fs_walk::{jwalk, WalkOptions, Walker};
+use crate::fs_walk::{WalkOptions, Walker, Entry, Metadata};
 use crate::{crossdev, InodeFilter, Throttle, WalkResult};
 use anyhow::Result;
-use filesize::PathExt;
 use owo_colors::{AnsiColors as Color, OwoColorize};
 use std::time::Duration;
 use std::{io, path::Path};
@@ -12,6 +11,7 @@ use std::{io, path::Path};
 pub fn aggregate(
     mut out: impl io::Write,
     mut err: Option<impl io::Write>,
+    mut walker: impl Walker,
     walk_options: WalkOptions,
     compute_total: bool,
     sort_by_size_in_bytes: bool,
@@ -28,15 +28,11 @@ pub fn aggregate(
     let mut inodes = InodeFilter::default();
     let progress = Throttle::new(Duration::from_millis(100), Duration::from_secs(1).into());
 
-    let walker = Box::new(jwalk::JWalkWalker {
-        options: walk_options.clone(),
-    });
-
     for path in paths.into_iter() {
         num_roots += 1;
         let mut num_bytes = 0u128;
         let mut num_errors = 0u64;
-        let device_id = match crossdev::init(path.as_ref()) {
+        let device_id = match walker.device_id(path.as_ref()) {
             Ok(id) => id,
             Err(_) => {
                 num_errors += 1;
@@ -46,6 +42,7 @@ pub fn aggregate(
             }
         };
         for entry in walker.into_iter(path.as_ref(), device_id) {
+
             stats.entries_traversed += 1;
             progress.throttled(|| {
                 if let Some(err) = err.as_mut() {
@@ -90,18 +87,8 @@ pub fn aggregate(
             write!(err, "\x1b[2K\r").ok();
         }
 
-        if sort_by_size_in_bytes {
-            aggregates.push((path.as_ref().to_owned(), num_bytes, num_errors));
-        } else {
-            output_colored_path(
-                &mut out,
-                &walk_options,
-                &path,
-                num_bytes,
-                num_errors,
-                path_color_of(&path),
-            )?;
-        }
+        aggregates.push((path.as_ref().to_owned(), num_bytes, num_errors));
+
         total += num_bytes;
         res.num_errors += num_errors;
     }
@@ -112,16 +99,17 @@ pub fn aggregate(
 
     if sort_by_size_in_bytes {
         aggregates.sort_by_key(|&(_, num_bytes, _)| num_bytes);
-        for (path, num_bytes, num_errors) in aggregates.into_iter() {
-            output_colored_path(
-                &mut out,
-                &walk_options,
-                &path,
-                num_bytes,
-                num_errors,
-                path_color_of(&path),
-            )?;
-        }
+    }
+
+    for (path, num_bytes, num_errors) in aggregates.into_iter() {
+        output_colored_path(
+            &mut out,
+            &walk_options,
+            &path,
+            num_bytes,
+            num_errors,
+            path_color_of(&path),
+        )?;
     }
 
     if num_roots > 1 && compute_total {
@@ -177,4 +165,156 @@ pub struct Statistics {
     pub smallest_file_in_bytes: u128,
     /// The size of the largest file encountered in bytes
     pub largest_file_in_bytes: u128,
+}
+
+
+#[cfg(test)]
+mod aggregate_tests {
+    use crate::Entry;
+
+    use super::*;
+    use std::time::SystemTime;
+    use std::{io, path::PathBuf};
+    use std::result::Result;
+    use std::mem;
+    use std::collections::HashMap;
+    use std::vec;
+
+    struct MockMetadata {
+
+    }
+
+    impl Metadata for MockMetadata {
+        fn is_dir(&self) -> bool {
+            false
+        }
+
+        fn dev(&self) -> u64 {
+            0
+        }
+
+        fn ino(&self) -> u64 {
+            0
+        }
+
+        fn nlink(&self) -> u64 {
+            0
+        }
+
+        fn apparent_size(&self) -> u64 {
+            0
+        }
+
+        fn size_on_disk(&self) -> io::Result<u64> {
+            Ok(0)
+        }
+
+        fn modified(&self) -> io::Result<std::time::SystemTime> {
+            Ok(SystemTime::now())
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockEntry{
+        
+    }
+
+    impl Entry for MockEntry {
+        fn depth(&self) -> usize {
+            0
+        }
+
+        fn path(&self) -> PathBuf {
+            "/aaaa".into()
+        }
+
+        fn file_name(&self) -> PathBuf {
+            "aaaa".into()
+        }
+
+        fn parent_path(&self) -> PathBuf {
+            "parent".into()
+        }
+
+        fn metadata(&self) -> Option<Result<impl Metadata + '_, io::Error>> {
+            Some(Ok(MockMetadata{}))
+        }
+    }
+
+    struct MockWalker {
+        entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>>
+    }
+
+    impl Walker for MockWalker {
+        fn device_id(&self, _path: &Path) -> io::Result<u64> {
+            Ok(0)
+        }
+
+        fn into_iter(
+            &mut self,
+            path: &Path,
+            root_device_id: u64,
+        ) -> impl Iterator<Item = Result<impl Entry, io::Error>> {
+            let mut empty : Vec<Result<MockEntry, io::Error>> = Vec::new();
+            let path_entries = 
+                self.entries.get_mut(path).unwrap_or(&mut empty);
+
+            MockIterator{
+                iter: std::mem::replace(path_entries, Vec::new()).into_iter()
+            }
+        }
+    }
+
+    struct MockIterator {
+        iter: vec::IntoIter<Result<MockEntry, io::Error>>
+    }
+
+    impl Iterator for MockIterator{
+        type Item = Result<MockEntry, io::Error>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self.iter.next() {
+                Some(entry) => {
+                    match &entry {
+                        Ok(entry) => {
+                            Some(Ok(entry.clone()))
+                        },
+                        Err(err) => {
+                            Some(Err(io::Error::new(err.kind(), "")))
+                        },
+                    }
+                },
+                None => None,
+            } 
+        }
+    }
+
+    #[test]
+    fn test_aggregate() {
+        let stdout = io::stdout();
+
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{})
+        ]);
+        
+        let walker = MockWalker{
+            entries
+        };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            stdout, 
+            Option::<io::Stderr>::None, 
+            walker, 
+            walk_options, 
+            true, 
+            true, 
+            vec!["test"].into_iter()
+        );
+
+        let result = result.unwrap();
+        assert_eq!(result.0.num_errors, 0);
+        assert_eq!(result.1.entries_traversed, 1);
+    }
 }

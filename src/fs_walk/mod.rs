@@ -1,4 +1,5 @@
 use byte_unit::{n_gb_bytes, n_gib_bytes, n_mb_bytes, n_mib_bytes, ByteUnit};
+use std::default;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -7,9 +8,10 @@ use std::time::SystemTime;
 
 pub mod jwalk;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum ByteFormat {
     /// metric format, based on 1000.
+    #[default]
     Metric,
     /// binary format, based on 1024
     Binary,
@@ -102,14 +104,15 @@ impl fmt::Display for ByteFormatDisplay {
 }
 
 /// Identify the kind of sorting to apply during filesystem iteration
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum TraversalSorting {
+    #[default]
     None,
     AlphabeticalByFileName,
 }
 
 /// Configures a filesystem walk, including output and formatting options.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WalkOptions {
     /// The amount of threads to use. Refer to [`WalkDir::num_threads()`](https://docs.rs/jwalk/0.4.0/jwalk/struct.WalkDir.html#method.num_threads)
     /// for more information.
@@ -136,14 +139,16 @@ pub trait Entry {
     fn depth(&self) -> usize;
     fn path(&self) -> PathBuf;
     fn file_name(&self) -> PathBuf;
-    fn parent_path(&self) -> &Path;
-    fn metadata(&self) -> Option<Result<Box<dyn Metadata + '_>, io::Error>>;
+    fn parent_path(&self) -> PathBuf;
+    fn metadata(&self) -> Option<Result<impl Metadata + '_, io::Error>>;
 }
 
 pub trait Walker {
+    fn device_id(&self, path: &Path) -> io::Result<u64>;
+
     fn into_iter(
-        &self,
+        &mut self,
         path: &Path,
         root_device_id: u64,
-    ) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>>;
+    ) -> impl Iterator<Item = Result<impl Entry, io::Error>>;
 }

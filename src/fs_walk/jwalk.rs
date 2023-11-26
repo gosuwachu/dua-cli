@@ -67,17 +67,17 @@ impl Entry for JWalkEntry {
         self.entry.file_name.clone().into()
     }
 
-    fn parent_path(&self) -> &Path {
-        self.entry.parent_path()
+    fn parent_path(&self) -> PathBuf {
+        self.entry.parent_path().to_path_buf()
     }
 
-    fn metadata(&self) -> Option<Result<Box<dyn Metadata + '_>, io::Error>> {
+    fn metadata(&self) -> Option<Result<impl Metadata + '_, io::Error>> {
         match &self.entry.client_state {
             Some(metadata) => Some(match metadata {
-                Ok(metadata) => Ok(Box::new(JWalkMetadata {
+                Ok(metadata) => Ok(JWalkMetadata {
                     entry: &self,
                     metadata: metadata.clone(),
-                })),
+                }),
                 Err(err) => Err(io::Error::new(
                     err.io_error()
                         .map(|err| err.kind())
@@ -95,12 +95,16 @@ pub struct JWalkWalker {
 }
 
 impl Walker for JWalkWalker {
+    fn device_id(&self, path: &Path) -> io::Result<u64> {
+        crossdev::init(path)
+    }
+
     fn into_iter(
-        &self,
+        &mut self,
         path: &Path,
         root_device_id: u64,
-    ) -> Box<dyn Iterator<Item = Result<Box<dyn Entry>, io::Error>>> {
-        Box::new(JWalkIterator::new(path, root_device_id, &self.options))
+    ) -> impl Iterator<Item = Result<impl Entry, io::Error>> {
+        JWalkIterator::new(path, root_device_id, &self.options)
     }
 }
 
@@ -112,7 +116,7 @@ type WalkDir = jwalk::WalkDirGeneric<((), Option<Result<std::fs::Metadata, jwalk
 type WalkDirIter = jwalk::DirEntryIter<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>;
 
 impl JWalkIterator {
-    fn new(root: &Path, root_device_id: u64, options: &WalkOptions) -> JWalkIterator {
+    fn new(root: &Path, root_device_id: u64, options: &WalkOptions) -> JWalkIterator<> {
         let walk_dir_iter = WalkDir::new(root)
             .follow_links(false)
             .sort(match options.sorting {
@@ -166,12 +170,12 @@ impl JWalkIterator {
 }
 
 impl Iterator for JWalkIterator {
-    type Item = Result<Box<dyn Entry>, io::Error>;
+    type Item = Result<impl Entry, io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.walk_dir_iter.next()?;
         match entry {
-            Ok(entry) => Some(Ok(Box::new(JWalkEntry { entry }))),
+            Ok(entry) => Some(Ok(JWalkEntry { entry })),
             Err(err) => Some(Err(err.into())),
         }
     }
