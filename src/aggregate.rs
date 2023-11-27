@@ -222,25 +222,45 @@ mod aggregate_tests {
         }
     }
 
+    impl Clone for MockEntry {
+        fn clone(&self) -> Self {
+            Self {
+                dept: self.dept.clone(),
+                path: self.path.clone(),
+                file_name: self.file_name.clone(),
+                parent_path: self.parent_path.clone(),
+                metadata: match &self.metadata {
+                    Some(Ok(metadata)) => Some(Ok(metadata.clone())),
+                    Some(Err(err)) => Some(Err(io::Error::from(err.kind()))),
+                    _ => None,
+                },
+            }
+        }
+    }
+
     impl Entry for MockEntry {
         fn depth(&self) -> usize {
-            0
+            self.dept
         }
 
         fn path(&self) -> PathBuf {
-            "/aaaa".into()
+            self.path.clone()
         }
 
         fn file_name(&self) -> PathBuf {
-            "aaaa".into()
+            self.file_name.clone()
         }
 
         fn parent_path(&self) -> PathBuf {
-            "parent".into()
+            self.parent_path.clone()
         }
 
         fn metadata(&self) -> Option<Result<impl Metadata + '_, io::Error>> {
-            Some(Ok(MockMetadata::default()))
+            match &self.metadata {
+                Some(Ok(metadata)) => Some(Ok(metadata.clone())),
+                Some(Err(err)) => Some(Err(io::Error::from(err.kind()))),
+                _ => None,
+            }
         }
     }
 
@@ -277,18 +297,8 @@ mod aggregate_tests {
         fn next(&mut self) -> Option<Self::Item> {
             match self.iter.next() {
                 Some(entry) => match &entry {
-                    Ok(entry) => Some(Ok(MockEntry {
-                        dept: entry.dept,
-                        path: entry.path.clone(),
-                        file_name: entry.file_name.clone(),
-                        parent_path: entry.parent_path.clone(),
-                        metadata: match &entry.metadata{
-                            Some(Ok(metadata)) => Some(Ok(metadata.clone())),
-                            Some(Err(err)) => Some(Err(io::Error::from(err.kind()))),
-                            _ => None
-                        },
-                    })),
-                    Err(err) => Some(Err(io::Error::new(err.kind(), ""))),
+                    Ok(entry) => Some(Ok(entry.clone())),
+                    Err(err) => Some(Err(io::Error::from(err.kind()))),
                 },
                 None => None,
             }
