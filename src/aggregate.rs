@@ -1,7 +1,7 @@
 use crate::fs_walk::{WalkOptions, Walker, Entry, Metadata};
 use crate::{crossdev, InodeFilter, Throttle, WalkResult};
 use anyhow::Result;
-use owo_colors::{AnsiColors as Color, OwoColorize};
+use std::path::PathBuf;
 use std::time::Duration;
 use std::{io, path::Path};
 
@@ -9,27 +9,23 @@ use std::{io, path::Path};
 /// If `compute_total` is set, it will write an additional line with the total size across all given `paths`.
 /// If `sort_by_size_in_bytes` is set, we will sort all sizes (ascending) before outputting them.
 pub fn aggregate(
-    mut out: impl io::Write,
     mut err: Option<impl io::Write>,
     mut walker: impl Walker,
-    walk_options: WalkOptions,
-    compute_total: bool,
+    walk_options: &WalkOptions,
     sort_by_size_in_bytes: bool,
     paths: impl IntoIterator<Item = impl AsRef<Path>>,
-) -> Result<(WalkResult, Statistics)> {
+) -> Result<(WalkResult, Statistics, Vec<(PathBuf, u128, u64)>)> {
     let mut res = WalkResult::default();
     let mut stats = Statistics {
         smallest_file_in_bytes: u128::max_value(),
         ..Default::default()
     };
-    let mut total = 0;
-    let mut num_roots = 0;
     let mut aggregates = Vec::new();
     let mut inodes = InodeFilter::default();
     let progress = Throttle::new(Duration::from_millis(100), Duration::from_secs(1).into());
 
     for path in paths.into_iter() {
-        num_roots += 1;
+        res.num_roots += 1;
         let mut num_bytes = 0u128;
         let mut num_errors = 0u64;
         let device_id = match walker.device_id(path.as_ref()) {
@@ -89,7 +85,7 @@ pub fn aggregate(
 
         aggregates.push((path.as_ref().to_owned(), num_bytes, num_errors));
 
-        total += num_bytes;
+        res.total += num_bytes;
         res.num_errors += num_errors;
     }
 
@@ -101,59 +97,7 @@ pub fn aggregate(
         aggregates.sort_by_key(|&(_, num_bytes, _)| num_bytes);
     }
 
-    for (path, num_bytes, num_errors) in aggregates.into_iter() {
-        output_colored_path(
-            &mut out,
-            &walk_options,
-            &path,
-            num_bytes,
-            num_errors,
-            path_color_of(&path),
-        )?;
-    }
-
-    if num_roots > 1 && compute_total {
-        output_colored_path(
-            &mut out,
-            &walk_options,
-            Path::new("total"),
-            total,
-            res.num_errors,
-            None,
-        )?;
-    }
-    Ok((res, stats))
-}
-
-fn path_color_of(path: impl AsRef<Path>) -> Option<Color> {
-    (!path.as_ref().is_file()).then_some(Color::Cyan)
-}
-
-fn output_colored_path(
-    out: &mut impl io::Write,
-    options: &WalkOptions,
-    path: impl AsRef<Path>,
-    num_bytes: u128,
-    num_errors: u64,
-    path_color: Option<Color>,
-) -> std::result::Result<(), io::Error> {
-    let size = options.byte_format.display(num_bytes).to_string();
-    let size = size.green();
-    let size_width = options.byte_format.width();
-    let path = path.as_ref().display();
-
-    let errors = (num_errors != 0)
-        .then(|| {
-            let plural_s = if num_errors > 1 { "s" } else { "" };
-            format!("  <{num_errors} IO Error{plural_s}>")
-        })
-        .unwrap_or_default();
-
-    if let Some(color) = path_color {
-        writeln!(out, "{size:>size_width$} {}{errors}", path.color(color))
-    } else {
-        writeln!(out, "{size:>size_width$} {path}{errors}")
-    }
+    Ok((res, stats, aggregates))
 }
 
 /// Statistics obtained during a filesystem walk
@@ -291,8 +235,6 @@ mod aggregate_tests {
 
     #[test]
     fn test_aggregate() {
-        let stdout = io::stdout();
-
         let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
         entries.insert("test".into(), vec![
             Ok(MockEntry{})
@@ -304,17 +246,16 @@ mod aggregate_tests {
         let walk_options = WalkOptions::default();
 
         let result = aggregate(
-            stdout, 
             Option::<io::Stderr>::None, 
             walker, 
-            walk_options, 
-            true, 
+            &walk_options, 
             true, 
             vec!["test"].into_iter()
         );
 
-        let result = result.unwrap();
-        assert_eq!(result.0.num_errors, 0);
-        assert_eq!(result.1.entries_traversed, 1);
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(stats.entries_traversed, 1);
+        assert_eq!(list.len(), 1);
     }
 }

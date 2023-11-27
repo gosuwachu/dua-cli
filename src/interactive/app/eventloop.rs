@@ -88,12 +88,14 @@ impl AppState {
                 Ctrl('c') => {
                     return Ok(ProcessingResult::ExitRequested(WalkResult {
                         num_errors: traversal.io_errors,
+                        ..Default::default()
                     }))
                 }
                 Char('q') | Esc => match self.focussed {
                     Main => {
                         return Ok(ProcessingResult::ExitRequested(WalkResult {
                             num_errors: traversal.io_errors,
+                            ..Default::default()
                         }))
                     }
                     Mark => self.focussed = Main,
@@ -157,6 +159,7 @@ impl AppState {
         }
         Ok(ProcessingResult::Finished(WalkResult {
             num_errors: traversal.io_errors,
+            ..Default::default()
         }))
     }
 }

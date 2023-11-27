@@ -58,6 +58,8 @@ impl Throttle {
 pub struct WalkResult {
     /// The amount of io::errors we encountered. Can happen when fetching meta-data, or when reading the directory contents.
     pub num_errors: u64,
+    pub num_roots: u64,
+    pub total: u128,
 }
 
 impl WalkResult {
