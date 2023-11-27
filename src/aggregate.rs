@@ -1,4 +1,4 @@
-use crate::fs_walk::{WalkOptions, Walker, Entry, Metadata};
+use crate::fs_walk::{Entry, Metadata, WalkOptions, Walker};
 use crate::{crossdev, InodeFilter, Throttle, WalkResult};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -38,7 +38,6 @@ pub fn aggregate(
             }
         };
         for entry in walker.into_iter(path.as_ref(), device_id) {
-
             stats.entries_traversed += 1;
             progress.throttled(|| {
                 if let Some(err) = err.as_mut() {
@@ -111,56 +110,116 @@ pub struct Statistics {
     pub largest_file_in_bytes: u128,
 }
 
-
 #[cfg(test)]
 mod aggregate_tests {
     use crate::Entry;
 
     use super::*;
-    use std::time::SystemTime;
-    use std::{io, path::PathBuf};
-    use std::result::Result;
-    use std::mem;
     use std::collections::HashMap;
+    use std::mem;
+    use std::result::Result;
+    use std::time::SystemTime;
     use std::vec;
+    use std::{io, path::PathBuf};
 
     struct MockMetadata {
+        is_dir: bool,
+        dev: u64,
+        ino: u64,
+        nlink: u64,
+        apparent_size: u64,
+        size_on_disk: io::Result<u64>,
+        modified: io::Result<std::time::SystemTime>,
+    }
 
+    impl Clone for MockMetadata {
+        fn clone(&self) -> Self {
+            Self {
+                is_dir: self.is_dir.clone(),
+                dev: self.dev.clone(),
+                ino: self.ino.clone(),
+                nlink: self.nlink.clone(),
+                apparent_size: self.apparent_size.clone(),
+                size_on_disk: match &self.size_on_disk {
+                    Ok(size) => Ok(*size),
+                    Err(err) => Err(io::Error::from(err.kind())),
+                },
+                modified: match &self.modified {
+                    Ok(time) => Ok(time.to_owned()),
+                    Err(err) => Err(io::Error::from(err.kind())),
+                },
+            }
+        }
+    }
+
+    impl Default for MockMetadata {
+        fn default() -> Self {
+            Self {
+                is_dir: false,
+                dev: 0,
+                ino: 0,
+                nlink: 0,
+                apparent_size: 0,
+                size_on_disk: Ok(0),
+                modified: Ok(SystemTime::UNIX_EPOCH),
+            }
+        }
     }
 
     impl Metadata for MockMetadata {
         fn is_dir(&self) -> bool {
-            false
+            self.is_dir
         }
 
         fn dev(&self) -> u64 {
-            0
+            self.dev
         }
 
         fn ino(&self) -> u64 {
-            0
+            self.ino
         }
 
         fn nlink(&self) -> u64 {
-            0
+            self.nlink
         }
 
         fn apparent_size(&self) -> u64 {
-            0
+            self.apparent_size
         }
 
         fn size_on_disk(&self) -> io::Result<u64> {
-            Ok(0)
+            match &self.size_on_disk {
+                Ok(size) => Ok(*size),
+                Err(err) => Err(io::Error::from(err.kind())),
+            }
         }
 
         fn modified(&self) -> io::Result<std::time::SystemTime> {
-            Ok(SystemTime::now())
+            match &self.modified {
+                Ok(time) => Ok(time.to_owned()),
+                Err(err) => Err(io::Error::from(err.kind())),
+            }
         }
     }
 
-    #[derive(Clone)]
-    struct MockEntry{
-        
+    struct MockEntry {
+        dept: usize,
+        path: PathBuf,
+        file_name: PathBuf,
+        parent_path: PathBuf,
+        metadata: Option<Result<MockMetadata, io::Error>>,
+    }
+
+    impl Default for MockEntry {
+        fn default() -> Self {
+            Self {
+                dept: Default::default(),
+                path: Default::default(),
+                file_name: Default::default(),
+                parent_path: Default::default(),
+                metadata: None,
+            }
+        }
     }
 
     impl Entry for MockEntry {
@@ -181,12 +240,12 @@ mod aggregate_tests {
         }
 
         fn metadata(&self) -> Option<Result<impl Metadata + '_, io::Error>> {
-            Some(Ok(MockMetadata{}))
+            Some(Ok(MockMetadata::default()))
         }
     }
 
     struct MockWalker {
-        entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>>
+        entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>>,
     }
 
     impl Walker for MockWalker {
@@ -199,58 +258,57 @@ mod aggregate_tests {
             path: &Path,
             root_device_id: u64,
         ) -> impl Iterator<Item = Result<impl Entry, io::Error>> {
-            let mut empty : Vec<Result<MockEntry, io::Error>> = Vec::new();
-            let path_entries = 
-                self.entries.get_mut(path).unwrap_or(&mut empty);
+            let mut empty: Vec<Result<MockEntry, io::Error>> = Vec::new();
+            let path_entries = self.entries.get_mut(path).unwrap_or(&mut empty);
 
-            MockIterator{
-                iter: std::mem::replace(path_entries, Vec::new()).into_iter()
+            MockIterator {
+                iter: std::mem::replace(path_entries, Vec::new()).into_iter(),
             }
         }
     }
 
     struct MockIterator {
-        iter: vec::IntoIter<Result<MockEntry, io::Error>>
+        iter: vec::IntoIter<Result<MockEntry, io::Error>>,
     }
 
-    impl Iterator for MockIterator{
+    impl Iterator for MockIterator {
         type Item = Result<MockEntry, io::Error>;
 
         fn next(&mut self) -> Option<Self::Item> {
             match self.iter.next() {
-                Some(entry) => {
-                    match &entry {
-                        Ok(entry) => {
-                            Some(Ok(entry.clone()))
+                Some(entry) => match &entry {
+                    Ok(entry) => Some(Ok(MockEntry {
+                        dept: entry.dept,
+                        path: entry.path.clone(),
+                        file_name: entry.file_name.clone(),
+                        parent_path: entry.parent_path.clone(),
+                        metadata: match &entry.metadata{
+                            Some(Ok(metadata)) => Some(Ok(metadata.clone())),
+                            Some(Err(err)) => Some(Err(io::Error::from(err.kind()))),
+                            _ => None
                         },
-                        Err(err) => {
-                            Some(Err(io::Error::new(err.kind(), "")))
-                        },
-                    }
+                    })),
+                    Err(err) => Some(Err(io::Error::new(err.kind(), ""))),
                 },
                 None => None,
-            } 
+            }
         }
     }
 
     #[test]
     fn test_aggregate() {
         let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
-        entries.insert("test".into(), vec![
-            Ok(MockEntry{})
-        ]);
-        
-        let walker = MockWalker{
-            entries
-        };
+        entries.insert("test".into(), vec![Ok(MockEntry::default())]);
+
+        let walker = MockWalker { entries };
         let walk_options = WalkOptions::default();
 
         let result = aggregate(
-            Option::<io::Stderr>::None, 
-            walker, 
-            &walk_options, 
-            true, 
-            vec!["test"].into_iter()
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            vec!["test"].into_iter(),
         );
 
         let (res, stats, list) = result.unwrap();
