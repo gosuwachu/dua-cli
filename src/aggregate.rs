@@ -265,12 +265,16 @@ mod aggregate_tests {
     }
 
     struct MockWalker {
+        device_id: io::Result<u64>,
         entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>>,
     }
 
     impl Walker for MockWalker {
         fn device_id(&self, _path: &Path) -> io::Result<u64> {
-            Ok(0)
+            match &self.device_id {
+                Ok(dev) => Ok(*dev),
+                Err(err) => Err(io::Error::from(err.kind()))
+            }
         }
 
         fn into_iter(
@@ -308,9 +312,450 @@ mod aggregate_tests {
     #[test]
     fn test_aggregate() {
         let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
-        entries.insert("test".into(), vec![Ok(MockEntry::default())]);
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "test/a.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(10), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "test/b.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(20), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+        entries.insert("other".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "other/a.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(7), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "other/b.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(5), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
 
-        let walker = MockWalker { entries };
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            false,
+            vec!["test", "other"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 2);
+        assert_eq!(res.total, 42);
+        assert_eq!(stats.entries_traversed, 4);
+        assert_eq!(stats.largest_file_in_bytes, 20);
+        assert_eq!(stats.smallest_file_in_bytes, 5);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 30u128, 0u64),
+            (PathBuf::from("other"), 12u128, 0u64),
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_size_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "test/a.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Err(io::Error::from(io::ErrorKind::Other)), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+        
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            false,
+            vec!["test"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 1);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 1);
+        assert_eq!(stats.largest_file_in_bytes, 0);
+        assert_eq!(stats.smallest_file_in_bytes, 0);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 0u128, 1u64),
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_empty() {
+        let entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            false,
+            vec!["test"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 0);
+        assert_eq!(stats.largest_file_in_bytes, 0);
+        assert_eq!(stats.smallest_file_in_bytes, 0);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 0u128, 0u64)
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_cross_filesystem() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "test/a.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(10), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "test/b.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(20), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+        entries.insert("other".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "other/a.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(7), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "other/b.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(5), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+
+        let walker = MockWalker { device_id: Ok(1), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            false,
+            vec!["test", "other"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 2);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 4);
+        assert_eq!(stats.largest_file_in_bytes, 0);
+        assert_eq!(stats.smallest_file_in_bytes, 0);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 0u128, 0u64),
+            (PathBuf::from("other"), 0u128, 0u64),
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_apparent_size() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "test/a.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 1, 
+                    size_on_disk: Ok(10), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "test/b.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 2, 
+                    size_on_disk: Ok(20), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+        entries.insert("other".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "other/a.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 3, 
+                    size_on_disk: Ok(7), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "other/b.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 4, 
+                    size_on_disk: Ok(5), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions{apparent_size: true, ..WalkOptions::default()};
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            false,
+            vec!["test", "other"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 2);
+        assert_eq!(res.total, 10);
+        assert_eq!(stats.entries_traversed, 4);
+        assert_eq!(stats.largest_file_in_bytes, 4);
+        assert_eq!(stats.smallest_file_in_bytes, 1);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 3u128, 0u64),
+            (PathBuf::from("other"), 7u128, 0u64),
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_sort_by_bytes() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "test/a.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(10), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "test/b.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(20), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+        entries.insert("other".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "a.txt".into(),
+                path: "other/a.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(7), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            }),
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "b.txt".into(),
+                path: "other/b.txt".into(),
+                parent_path: "other".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    dev: 0, 
+                    ino: 0, 
+                    nlink: 0, 
+                    apparent_size: 0, 
+                    size_on_disk: Ok(50), 
+                    modified: Ok(SystemTime::UNIX_EPOCH) }))
+            })
+        ]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            vec!["test", "other"].into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 2);
+        assert_eq!(res.total, 87);
+        assert_eq!(stats.entries_traversed, 4);
+        assert_eq!(stats.largest_file_in_bytes, 50);
+        assert_eq!(stats.smallest_file_in_bytes, 7);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list, vec![
+            (PathBuf::from("test"), 30u128, 0u64),
+            (PathBuf::from("other"), 57u128, 0u64),
+        ]);
+    }
+
+    #[test]
+    fn test_aggregate_directory_ignored() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![Ok(MockEntry{
+            dept: 0,
+            file_name: "a".into(),
+            path: "test/a".into(),
+            parent_path: "test".into(),
+            metadata: Some(Ok(MockMetadata { 
+                is_dir: true, 
+                dev: 0, 
+                ino: 0, 
+                nlink: 0, 
+                apparent_size: 11, 
+                size_on_disk: Ok(10), 
+                modified: Ok(SystemTime::UNIX_EPOCH) }))
+        })]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
         let walk_options = WalkOptions::default();
 
         let result = aggregate(
@@ -323,6 +768,149 @@ mod aggregate_tests {
 
         let (res, stats, list) = result.unwrap();
         assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 1);
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn test_aggregate_entry_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![Err(io::Error::from(io::ErrorKind::Other))]);
+
+        let paths = entries.keys().map(|p| match p.to_str() {
+            Some(str) => str.to_string(),
+            _ => "".to_string()
+        }).collect::<Vec<String>>();
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            paths.into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 1);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 1);
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn test_aggregate_device_id_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![Ok(MockEntry{
+            dept: 0,
+            file_name: "a".into(),
+            path: "test/a".into(),
+            parent_path: "test".into(),
+            metadata: Some(Ok(MockMetadata { 
+                is_dir: true, 
+                dev: 0, 
+                ino: 0, 
+                nlink: 0, 
+                apparent_size: 11, 
+                size_on_disk: Ok(10), 
+                modified: Ok(SystemTime::UNIX_EPOCH) }))
+        })]);
+
+        let paths = entries.keys().map(|p| match p.to_str() {
+            Some(str) => str.to_string(),
+            _ => "".to_string()
+        }).collect::<Vec<String>>();
+
+        let walker = MockWalker { device_id: Err(io::Error::from(io::ErrorKind::Other)), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            paths.into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 1);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 0);
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn test_aggregate_metadata_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![Ok(MockEntry{
+            dept: 0,
+            file_name: "a".into(),
+            path: "test/a".into(),
+            parent_path: "test".into(),
+            metadata: Some(Err(io::Error::from(io::ErrorKind::Other)))
+        })]);
+
+        let paths = entries.keys().map(|p| match p.to_str() {
+            Some(str) => str.to_string(),
+            _ => "".to_string()
+        }).collect::<Vec<String>>();
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            paths.into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 1);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
+        assert_eq!(stats.entries_traversed, 1);
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn test_aggregate_metadata_none() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![Ok(MockEntry{
+            dept: 0,
+            file_name: "a".into(),
+            path: "test/a".into(),
+            parent_path: "test".into(),
+            metadata: None
+        })]);
+
+        let paths = entries.keys().map(|p| match p.to_str() {
+            Some(str) => str.to_string(),
+            _ => "".to_string()
+        }).collect::<Vec<String>>();
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let result = aggregate(
+            Option::<io::Stderr>::None,
+            walker,
+            &walk_options,
+            true,
+            paths.into_iter(),
+        );
+
+        let (res, stats, list) = result.unwrap();
+        assert_eq!(res.num_errors, 0);
+        assert_eq!(res.num_roots, 1);
+        assert_eq!(res.total, 0);
         assert_eq!(stats.entries_traversed, 1);
         assert_eq!(list.len(), 1);
     }
