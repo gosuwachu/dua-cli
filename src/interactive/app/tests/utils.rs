@@ -1,7 +1,7 @@
 use anyhow::{Context, Error, Result};
 use dua::{
     traverse::{EntryData, Tree, TreeIndex},
-    ByteFormat, TraversalSorting, WalkOptions,
+    fs_walk::{ByteFormat, TraversalSorting, WalkOptions},
 };
 use itertools::Itertools;
 use jwalk::{DirEntry, WalkDir};

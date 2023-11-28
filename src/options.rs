@@ -1,4 +1,4 @@
-use dua::ByteFormat as LibraryByteFormat;
+use dua::fs_walk::ByteFormat as LibraryByteFormat;
 use std::path::PathBuf;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, clap::ValueEnum)]

@@ -1,5 +1,4 @@
 use byte_unit::{n_gb_bytes, n_gib_bytes, n_mb_bytes, n_mib_bytes, ByteUnit};
-use std::default;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -7,6 +6,9 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 pub mod jwalk;
+
+#[cfg(test)]
+pub mod mocks;
 
 #[derive(Clone, Copy, Default)]
 pub enum ByteFormat {

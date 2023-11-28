@@ -7,13 +7,11 @@ extern crate jwalk;
 mod aggregate;
 mod common;
 mod crossdev;
-mod fs_walk;
+pub mod fs_walk;
 mod inodefilter;
 
 pub mod traverse;
 
 pub use aggregate::aggregate;
 pub use common::*;
-pub use fs_walk::jwalk::JWalkWalker;
-pub use fs_walk::*;
 pub(crate) use inodefilter::InodeFilter;

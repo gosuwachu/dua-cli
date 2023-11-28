@@ -8,8 +8,9 @@ use anyhow::Result;
 use crosstermion::input::{input_channel, Event, Key};
 use dua::{
     traverse::{Traversal, TreeIndex},
-    JWalkWalker, WalkOptions, WalkResult,
+    WalkResult,
 };
+use dua::fs_walk::{jwalk::JWalkWalker, WalkOptions};
 use std::{collections::BTreeMap, path::PathBuf};
 use tui::backend::Backend;
 use tui_react::Terminal;

@@ -1,8 +1,7 @@
 #![forbid(unsafe_code)]
 use anyhow::Result;
 use clap::Parser;
-use dua::TraversalSorting;
-use dua::JWalkWalker;
+use dua::fs_walk::{TraversalSorting, jwalk::JWalkWalker};
 use std::{fs, io, io::Write, path::PathBuf, process};
 use owo_colors::{AnsiColors as Color, OwoColorize};
 use std::path::Path;
@@ -24,7 +23,7 @@ fn main() -> Result<()> {
     use options::Command::*;
 
     let opt: options::Args = options::Args::parse_from(wild::args_os());
-    let walk_options = dua::WalkOptions {
+    let walk_options = dua::fs_walk::WalkOptions {
         threads: opt.threads,
         byte_format: opt.format.into(),
         apparent_size: opt.apparent_size,
@@ -182,7 +181,7 @@ fn path_color_of(path: impl AsRef<Path>) -> Option<Color> {
 
 fn output_colored_path(
     out: &mut impl io::Write,
-    options: &dua::WalkOptions,
+    options: &dua::fs_walk::WalkOptions,
     path: impl AsRef<Path>,
     num_bytes: u128,
     num_errors: u64,

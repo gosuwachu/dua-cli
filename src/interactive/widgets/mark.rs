@@ -4,7 +4,7 @@ use crate::interactive::{
 use crosstermion::{input::Key, input::Key::*};
 use dua::{
     traverse::{Tree, TreeIndex},
-    ByteFormat,
+    fs_walk::ByteFormat,
 };
 use itertools::Itertools;
 use std::{
