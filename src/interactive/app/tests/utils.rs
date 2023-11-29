@@ -1,5 +1,5 @@
 use anyhow::{Context, Error, Result};
-use dua::{
+use crate::{
     traverse::{EntryData, Tree, TreeIndex},
     fs_walk::{ByteFormat, TraversalSorting, WalkOptions},
 };

@@ -2,7 +2,7 @@ use crate::interactive::{
     fit_string_graphemes_with_ellipsis, path_of, widgets::entry_color, CursorDirection,
 };
 use crosstermion::{input::Key, input::Key::*};
-use dua::{
+use crate::{
     traverse::{Tree, TreeIndex},
     fs_walk::ByteFormat,
 };

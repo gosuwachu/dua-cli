@@ -4,7 +4,7 @@ use crate::interactive::{
     DisplayOptions, EntryDataBundle, SortMode,
 };
 use chrono::DateTime;
-use dua::traverse::{Tree, TreeIndex};
+use crate::traverse::{Tree, TreeIndex};
 use itertools::Itertools;
 use std::{borrow::Borrow, path::Path};
 use tui::{

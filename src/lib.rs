@@ -6,9 +6,12 @@ extern crate jwalk;
 
 mod aggregate;
 mod common;
-mod crossdev;
+pub mod crossdev;
 pub mod fs_walk;
 mod inodefilter;
+
+#[cfg(any(feature = "tui-unix", feature = "tui-crossplatform"))]
+pub mod interactive;
 
 pub mod traverse;
 

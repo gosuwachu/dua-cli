@@ -98,7 +98,7 @@ impl Traversal {
         }
 
         for path in input.into_iter() {
-            let device_id = match crossdev::init(path.as_ref()) {
+            let device_id = match walker.device_id(path.as_ref()) {
                 Ok(id) => id,
                 Err(_) => {
                     t.io_errors += 1;
@@ -251,6 +251,11 @@ fn pop_or_panic(v: &mut Vec<u128>) -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fs_walk::mocks::*;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+    use std::io;
+    use crate::interactive::app::tests::utils::{debug, make_add_node, fixture_str};
 
     #[test]
     fn size_of_entry_data() {
@@ -258,6 +263,89 @@ mod tests {
             std::mem::size_of::<EntryData>(),
             if cfg!(windows) { 64 } else { 64 },
             "the size of this should not change unexpectedly as it affects overall memory consumption"
+        );
+    }
+
+    #[test]
+    fn test_from_walker() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "test".into(),
+                path: "test".into(),
+                parent_path: "".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "a".into(),
+                path: "test/a".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 2,
+                file_name: "a.txt".into(),
+                path: "test/a/a.txt".into(),
+                parent_path: "a".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "b.txt".into(),
+                path: "test/b.txt".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    size_on_disk: Ok(11), 
+                    ..Default::default() }))
+            })
+        ]);
+        
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            let rn = add_node("", 21, None);
+            {
+                let sn = add_node("test", 21, Some(rn));
+                {
+                    let sn = add_node("a", 10, Some(sn));
+                    {
+                        add_node("a.txt", 10, Some(sn));
+                    }
+                }
+                add_node("b.txt", 11, Some(sn));
+            }
+        }
+
+        assert_eq!(t.entries_traversed, 4);
+        assert_eq!(t.io_errors, 0);
+        assert_eq!(t.total_bytes.unwrap(), 21);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
         );
     }
 }

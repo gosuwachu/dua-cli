@@ -9,4 +9,4 @@ pub use eventloop::*;
 pub use handlers::*;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

@@ -1,4 +1,4 @@
-use dua::fs_walk::ByteFormat;
+use crate::fs_walk::ByteFormat;
 use std::borrow::Borrow;
 use tui::{
     buffer::Buffer,

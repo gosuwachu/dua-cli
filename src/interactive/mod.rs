@@ -1,10 +1,10 @@
-mod app;
+pub mod app;
 pub use app::*;
 
 pub mod widgets;
 
 mod utils {
-    use dua::{
+    use crate::{
         get_entry_or_panic,
         traverse::{Tree, TreeIndex},
     };

@@ -2,13 +2,12 @@
 use anyhow::Result;
 use clap::Parser;
 use dua::fs_walk::{TraversalSorting, jwalk::JWalkWalker};
+use dua::interactive;
+use dua::crossdev;
 use std::{fs, io, io::Write, path::PathBuf, process};
 use owo_colors::{AnsiColors as Color, OwoColorize};
 use std::path::Path;
 
-mod crossdev;
-#[cfg(any(feature = "tui-unix", feature = "tui-crossplatform"))]
-mod interactive;
 mod options;
 
 fn stderr_if_tty() -> Option<io::Stderr> {

@@ -5,7 +5,7 @@ use crate::interactive::{
     AppState, DisplayOptions, EntryDataBundle,
 };
 use crosstermion::input::Key;
-use dua::traverse::{Traversal, TreeIndex};
+use crate::traverse::{Traversal, TreeIndex};
 use itertools::Itertools;
 use petgraph::{visit::Bfs, Direction};
 use std::{fs, io, path::PathBuf};

@@ -1,5 +1,5 @@
 use crate::interactive::path_of;
-use dua::traverse::{EntryData, Tree, TreeIndex};
+use crate::traverse::{EntryData, Tree, TreeIndex};
 use itertools::Itertools;
 use petgraph::Direction;
 use unicode_segmentation::UnicodeSegmentation;

@@ -5,7 +5,7 @@ use crate::interactive::{
     },
     AppState, DisplayOptions, FocussedPane,
 };
-use dua::traverse::Traversal;
+use crate::traverse::Traversal;
 use std::borrow::Borrow;
 use tui::{
     buffer::Buffer,
