@@ -1,11 +1,12 @@
 use crate::fs_walk::{WalkOptions, Walker, Entry, Metadata};
 use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle};
 use anyhow::Result;
-use filesize::PathExt;
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
+use std::io::Write;
 use std::{
+    fs::File,
     fmt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -70,6 +71,8 @@ impl Traversal {
         input: Vec<PathBuf>,
         mut update: impl FnMut(&mut Traversal) -> Result<bool>,
     ) -> Result<Option<Traversal>> {
+        let mut log = File::create("log.txt").unwrap();
+
         let mut t = {
             let mut tree = Tree::new();
             let root_index = tree.add_node(EntryData::default());
@@ -108,6 +111,9 @@ impl Traversal {
             for entry in walker.into_iter(path.as_ref(), device_id) {
                 t.entries_traversed += 1;
                 let mut data = EntryData::default();
+
+                log.write_all(format!("{:#?}\n", entry).as_bytes()).unwrap();
+
                 match entry {
                     Ok(entry) => {
                         data.name = if entry.depth() < 1 {
@@ -253,9 +259,8 @@ mod tests {
     use super::*;
     use crate::fs_walk::mocks::*;
     use std::collections::HashMap;
-    use std::time::SystemTime;
     use std::io;
-    use crate::interactive::app::tests::utils::{debug, make_add_node, fixture_str};
+    use crate::interactive::app::tests::utils::{debug, make_add_node};
 
     #[test]
     fn size_of_entry_data() {
@@ -343,6 +348,308 @@ mod tests {
         assert_eq!(t.entries_traversed, 4);
         assert_eq!(t.io_errors, 0);
         assert_eq!(t.total_bytes.unwrap(), 21);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
+        );
+    }
+
+    #[test]
+    fn test_from_walker_when_device_id_error_then_empty_tree() {
+        let entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        let walker = MockWalker { device_id: Err(io::Error::from(io::ErrorKind::Other)), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            add_node("", 0, None);
+        }
+
+        assert_eq!(t.entries_traversed, 0);
+        assert_eq!(t.io_errors, 1);
+        assert_eq!(t.total_bytes.unwrap(), 0);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
+        );
+    }
+
+    #[test]
+    fn test_from_walker_when_entry_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "test".into(),
+                path: "test".into(),
+                parent_path: "".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(0), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "test".into(),
+                path: "test/test".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(0), 
+                    ..Default::default() 
+                }))
+            }),
+            Err(io::Error::from(io::ErrorKind::Other)),
+        ]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            let rn = add_node("", 0, None);
+            {
+                let sn = add_node("test", 0, Some(rn));
+                {
+                    let sn = add_node("test", 0, Some(sn));
+                }
+            }
+        }
+
+        assert_eq!(t.entries_traversed, 3);
+        assert_eq!(t.io_errors, 1);
+        assert_eq!(t.total_bytes.unwrap(), 0);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
+        );
+    }
+
+    fn test_from_walker_when_entry_error_for_second_root() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "test".into(),
+                path: "test".into(),
+                parent_path: "".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(0), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "test".into(),
+                path: "test/test".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(0), 
+                    ..Default::default() 
+                }))
+            }),
+        ]);
+
+        entries.insert("test1".into(), vec![
+            Err(io::Error::from(io::ErrorKind::Other)),
+        ]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into(), "test1".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            let rn = add_node("", 0, None);
+            {
+                let sn = add_node("test", 0, Some(rn));
+                {
+                    let sn = add_node("test", 0, Some(sn));
+                }
+            }
+        }
+
+        assert_eq!(t.entries_traversed, 3);
+        assert_eq!(t.io_errors, 1);
+        assert_eq!(t.total_bytes.unwrap(), 0);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
+        );
+    }
+
+    #[test]
+    fn test_from_walker_when_root_entry_error() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Err(io::Error::from(io::ErrorKind::Other)),
+        ]);
+
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            let rn = add_node("", 0, None);
+            {
+                let sn = add_node("test", 0, Some(rn));
+            }
+        }
+
+        assert_eq!(t.entries_traversed, 1);
+        assert_eq!(t.io_errors, 1);
+        assert_eq!(t.total_bytes.unwrap(), 0);
+        assert_eq!(
+            debug(t.tree), 
+            debug(tree)
+        );
+    }
+
+    #[test]
+    fn test_from_walker_root_twice() {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+        entries.insert("test".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "test".into(),
+                path: "test".into(),
+                parent_path: "".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "a".into(),
+                path: "test/a".into(),
+                parent_path: "test".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 2,
+                file_name: "a.txt".into(),
+                path: "test/a/a.txt".into(),
+                parent_path: "a".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            })
+        ]);
+        entries.insert("test1".into(), vec![
+            Ok(MockEntry{
+                dept: 0,
+                file_name: "test1".into(),
+                path: "test1".into(),
+                parent_path: "".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 1,
+                file_name: "a".into(),
+                path: "test1/a".into(),
+                parent_path: "test1".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: true, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            }),
+            Ok(MockEntry{
+                dept: 2,
+                file_name: "a.txt".into(),
+                path: "test1/a/a.txt".into(),
+                parent_path: "a".into(),
+                metadata: Some(Ok(MockMetadata { 
+                    is_dir: false, 
+                    size_on_disk: Ok(10), 
+                    ..Default::default() }))
+            })
+        ]);
+        
+        let walker = MockWalker { device_id: Ok(0), entries };
+        let walk_options = WalkOptions::default();
+
+        let t = Traversal::from_walker(
+            walker,
+            walk_options,
+            vec!["test".into(), "test1".into()],
+            |_traversal| {
+                Ok(false)
+            }
+        ).unwrap().unwrap();
+
+        let mut tree = Tree::new();
+        {
+            let mut add_node = make_add_node(&mut tree);
+            let rn = add_node("", 20, None);
+            {
+                let sn = add_node("test", 10, Some(rn));
+                {
+                    let sn = add_node("a", 10, Some(sn));
+                    {
+                        add_node("a.txt", 10, Some(sn));
+                    }
+                }
+                let sn = add_node("test1", 10, Some(rn));
+                {
+                    let sn = add_node("a", 10, Some(sn));
+                    {
+                        add_node("a.txt", 10, Some(sn));
+                    }
+                }
+            }
+        }
+
+        assert_eq!(t.entries_traversed, 6);
+        assert_eq!(t.io_errors, 0);
+        assert_eq!(t.total_bytes.unwrap(), 20);
         assert_eq!(
             debug(t.tree), 
             debug(tree)

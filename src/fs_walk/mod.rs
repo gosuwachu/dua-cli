@@ -1,5 +1,6 @@
 use byte_unit::{n_gb_bytes, n_gib_bytes, n_mb_bytes, n_mib_bytes, ByteUnit};
 use std::fmt;
+use std::fmt::Debug;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -152,5 +153,5 @@ pub trait Walker {
         &mut self,
         path: &Path,
         root_device_id: u64,
-    ) -> impl Iterator<Item = Result<impl Entry, io::Error>>;
+    ) -> impl Iterator<Item = Result<impl Entry + Debug, io::Error>>;
 }

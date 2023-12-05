@@ -50,6 +50,7 @@ impl<'a> Metadata for JWalkMetadata<'a> {
     }
 }
 
+#[derive(Debug)]
 struct JWalkEntry {
     entry: jwalk::DirEntry<((), Option<Result<std::fs::Metadata, jwalk::Error>>)>,
 }
@@ -103,7 +104,7 @@ impl Walker for JWalkWalker {
         &mut self,
         path: &Path,
         root_device_id: u64,
-    ) -> impl Iterator<Item = Result<impl Entry, io::Error>> {
+    ) -> impl Iterator<Item = Result<impl Entry + Debug, io::Error>> {
         JWalkIterator::new(path, root_device_id, &self.options)
     }
 }
@@ -170,7 +171,7 @@ impl JWalkIterator {
 }
 
 impl Iterator for JWalkIterator {
-    type Item = Result<impl Entry, io::Error>;
+    type Item = Result<impl Entry + Debug, io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.walk_dir_iter.next()?;

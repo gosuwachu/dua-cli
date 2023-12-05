@@ -7,6 +7,7 @@ use std::time::SystemTime;
 use std::vec;
 use std::path::PathBuf;
 
+#[derive(Debug)]
 pub struct MockMetadata {
     pub is_dir: bool,
     pub dev: u64,
@@ -87,6 +88,7 @@ impl Metadata for MockMetadata {
     }
 }
 
+#[derive(Debug)]
 pub struct MockEntry {
     pub dept: usize,
     pub path: PathBuf,
@@ -166,7 +168,7 @@ impl Walker for MockWalker {
         &mut self,
         path: &Path,
         _root_device_id: u64,
-    ) -> impl Iterator<Item = Result<impl Entry, io::Error>> {
+    ) -> impl Iterator<Item = Result<impl Entry + std::fmt::Debug, io::Error>> {
         let mut empty: Vec<Result<MockEntry, io::Error>> = Vec::new();
         let path_entries = self.entries.get_mut(path).unwrap_or(&mut empty);
 
