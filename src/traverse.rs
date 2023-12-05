@@ -271,53 +271,95 @@ mod tests {
         );
     }
 
+    struct DirectoryDesc {
+        name: String
+    }
+
+    struct FileDesc {
+        name: String,
+        size: u64
+    }
+
+    enum Entry {
+        Directory(DirectoryDesc, Vec<Entry>),
+        File(FileDesc)
+    }
+
+    struct Root {
+        name: String,
+        entries: Vec<Entry>
+    }
+
+    fn build_entries(
+        entry_list: &mut Vec<Result<MockEntry, io::Error>>, 
+        list: &Vec<Entry>, 
+        depth: usize, 
+        parent_path: PathBuf) {
+        for entry in list {
+            match entry {
+                Entry::Directory(desc, items) => {
+                    let mut path = parent_path.clone();
+                    path.push(desc.name.clone());
+
+                    entry_list.push(Ok(MockEntry { 
+                        dept: depth, 
+                        path: path.clone(),
+                        file_name: desc.name.clone().into(),
+                        parent_path: parent_path.clone(), 
+                        metadata: Some(Ok(MockMetadata { 
+                            is_dir: true,
+                            size_on_disk: Ok(0), 
+                            ..Default::default() }))
+                    }));
+
+                    build_entries(entry_list, items, depth + 1, path);
+                },
+                Entry::File(desc) => {
+                    let mut path = parent_path.clone();
+                    path.push(desc.name.clone());
+
+                    entry_list.push(Ok(MockEntry { 
+                        dept: depth, 
+                        path: path,
+                        file_name: desc.name.clone().into(),
+                        parent_path: parent_path.clone(), 
+                        metadata: Some(Ok(MockMetadata { 
+                            is_dir: false,
+                            size_on_disk: Ok(desc.size), 
+                            ..Default::default() }))
+                    }));
+                }
+            }
+        }
+    }
+
+    fn build(roots: Vec<Root>) -> HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> {
+        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
+
+        for root in roots {
+            let mut entry_list: Vec<Result<MockEntry, io::Error>> = Vec::new();
+            build_entries(&mut entry_list, &root.entries, 0, "".into());
+            entries.insert(root.name.into(), entry_list);
+        }
+
+        return entries;
+    }
+
     #[test]
     fn test_from_walker() {
-        let mut entries: HashMap<PathBuf, Vec<Result<MockEntry, io::Error>>> = HashMap::new();
-        entries.insert("test".into(), vec![
-            Ok(MockEntry{
-                dept: 0,
-                file_name: "test".into(),
-                path: "test".into(),
-                parent_path: "".into(),
-                metadata: Some(Ok(MockMetadata { 
-                    is_dir: true, 
-                    size_on_disk: Ok(10), 
-                    ..Default::default() }))
-            }),
-            Ok(MockEntry{
-                dept: 1,
-                file_name: "a".into(),
-                path: "test/a".into(),
-                parent_path: "test".into(),
-                metadata: Some(Ok(MockMetadata { 
-                    is_dir: true, 
-                    size_on_disk: Ok(10), 
-                    ..Default::default() }))
-            }),
-            Ok(MockEntry{
-                dept: 2,
-                file_name: "a.txt".into(),
-                path: "test/a/a.txt".into(),
-                parent_path: "a".into(),
-                metadata: Some(Ok(MockMetadata { 
-                    is_dir: false, 
-                    size_on_disk: Ok(10), 
-                    ..Default::default() }))
-            }),
-            Ok(MockEntry{
-                dept: 1,
-                file_name: "b.txt".into(),
-                path: "test/b.txt".into(),
-                parent_path: "test".into(),
-                metadata: Some(Ok(MockMetadata { 
-                    is_dir: false, 
-                    size_on_disk: Ok(11), 
-                    ..Default::default() }))
-            })
-        ]);
-        
-        let walker = MockWalker { device_id: Ok(0), entries };
+        let walker = MockWalker { device_id: Ok(0), entries: build(vec![
+            Root {
+                name: "test".into(),
+                entries: vec![
+                    Entry::Directory(DirectoryDesc { name: "test".into() }, vec![
+                        Entry::Directory(DirectoryDesc { name: "a".into() }, vec![
+                            Entry::File(FileDesc { name: "a.txt".into(), size: 10 })
+                        ]),
+                        Entry::File(FileDesc { name: "b.txt".into(), size: 11 })
+                    ])
+                ]
+            }
+        ])};
         let walk_options = WalkOptions::default();
 
         let t = Traversal::from_walker(
