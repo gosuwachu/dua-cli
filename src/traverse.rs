@@ -69,50 +69,65 @@ pub struct Traversal {
     pub total_bytes: Option<u128>,
 }
 
+#[derive(Default, Copy, Clone)]
+struct EntryInfo {
+    size: u128,
+    entries_count: Option<u64>,
+}
+
+impl EntryInfo {
+    fn add_count(&mut self, other: &Self) {
+        self.entries_count = match (self.entries_count, other.entries_count) {
+            (Some(a), Some(b)) => Some(a + b),
+            (None, Some(b)) => Some(b),
+            (Some(a), None) => Some(a),
+            (None, None) => None,
+        };
+    }
+}
+
+fn set_entry_info_or_panic(
+    tree: &mut Tree,
+    node_idx: TreeIndex,
+    EntryInfo {
+        size,
+        entries_count,
+    }: EntryInfo,
+) {
+    let node = tree
+        .node_weight_mut(node_idx)
+        .expect("node for parent index we just retrieved");
+    node.size = size;
+    node.entry_count = entries_count;
+}
+
+fn parent_or_panic(tree: &mut Tree, parent_node_idx: TreeIndex) -> TreeIndex {
+    tree.neighbors_directed(parent_node_idx, Direction::Incoming)
+        .next()
+        .expect("every node in the iteration has a parent")
+}
+
+fn pop_or_panic(v: &mut Vec<EntryInfo>) -> EntryInfo {
+    v.pop().expect("sizes per level to be in sync with graph")
+}
+
+
+#[cfg(not(windows))]
+fn size_on_disk(_parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
+    name.size_on_disk_fast(meta)
+}
+
+#[cfg(windows)]
+fn size_on_disk(parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
+    parent.join(name).size_on_disk_fast(meta)
+}
+
 impl Traversal {
     pub fn from_walk(
         mut walk_options: WalkOptions,
         input: Vec<PathBuf>,
         mut update: impl FnMut(&mut Traversal) -> Result<bool>,
     ) -> Result<Option<Traversal>> {
-        #[derive(Default, Copy, Clone)]
-        struct EntryInfo {
-            size: u128,
-            entries_count: Option<u64>,
-        }
-        impl EntryInfo {
-            fn add_count(&mut self, other: &Self) {
-                self.entries_count = match (self.entries_count, other.entries_count) {
-                    (Some(a), Some(b)) => Some(a + b),
-                    (None, Some(b)) => Some(b),
-                    (Some(a), None) => Some(a),
-                    (None, None) => None,
-                };
-            }
-        }
-        fn set_entry_info_or_panic(
-            tree: &mut Tree,
-            node_idx: TreeIndex,
-            EntryInfo {
-                size,
-                entries_count,
-            }: EntryInfo,
-        ) {
-            let node = tree
-                .node_weight_mut(node_idx)
-                .expect("node for parent index we just retrieved");
-            node.size = size;
-            node.entry_count = entries_count;
-        }
-        fn parent_or_panic(tree: &mut Tree, parent_node_idx: TreeIndex) -> TreeIndex {
-            tree.neighbors_directed(parent_node_idx, Direction::Incoming)
-                .next()
-                .expect("every node in the iteration has a parent")
-        }
-        fn pop_or_panic(v: &mut Vec<EntryInfo>) -> EntryInfo {
-            v.pop().expect("sizes per level to be in sync with graph")
-        }
-
         let mut t = {
             let mut tree = Tree::new();
             let root_index = tree.add_node(EntryData::default());
@@ -138,15 +153,6 @@ impl Traversal {
             // avoid using the global rayon pool, as it will keep a lot of threads alive after we are done.
             // Also means that we will spin up a bunch of threads per root path, instead of reusing them.
             walk_options.threads = num_cpus::get();
-        }
-
-        #[cfg(not(windows))]
-        fn size_on_disk(_parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
-            name.size_on_disk_fast(meta)
-        }
-        #[cfg(windows)]
-        fn size_on_disk(parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
-            parent.join(name).size_on_disk_fast(meta)
         }
 
         for path in input.into_iter() {
