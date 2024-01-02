@@ -6,8 +6,8 @@ mod common;
 mod crossdev;
 mod inodefilter;
 
-pub mod traverse;
 pub mod refresh;
+pub mod traverse;
 
 pub use aggregate::aggregate;
 pub use common::*;

@@ -1,7 +1,7 @@
-use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle, WalkOptions, get_entry_or_panic};
+use crate::{crossdev, get_entry_or_panic, get_size_or_panic, InodeFilter, Throttle, WalkOptions};
 use anyhow::Result;
 use filesize::PathExt;
-use log::info;
+use log::{error, info};
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
 use std::{
     fmt,
@@ -42,6 +42,7 @@ impl fmt::Debug for EntryData {
             .field("name", &self.name)
             .field("size", &self.size)
             .field("entry_count", &self.entry_count)
+            .field("is_dir", &self.is_dir)
             // Skip mtime
             .finish()
     }
@@ -96,6 +97,11 @@ fn set_entry_info_or_panic(
         .expect("node for parent index we just retrieved");
     node.size = size;
     node.entry_count = entries_count;
+    if !node.is_dir {
+        error!("this node is not a directory: {node:#?}");
+        log::logger().flush();
+    }
+    assert!(node.is_dir);
 }
 
 fn parent_or_panic(tree: &mut Tree, parent_node_idx: TreeIndex) -> TreeIndex {
@@ -107,7 +113,6 @@ fn parent_or_panic(tree: &mut Tree, parent_node_idx: TreeIndex) -> TreeIndex {
 fn pop_or_panic(v: &mut Vec<EntryInfo>) -> EntryInfo {
     v.pop().expect("sizes per level to be in sync with graph")
 }
-
 
 #[cfg(not(windows))]
 fn size_on_disk(_parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
@@ -127,7 +132,10 @@ impl Traversal {
     ) -> Result<Option<Traversal>> {
         let mut t = {
             let mut tree = Tree::new();
-            let root_index = tree.add_node(EntryData::default());
+            let root_index = tree.add_node(EntryData {
+                is_dir: true,
+                ..EntryData::default()
+            });
             Traversal {
                 tree,
                 root_index,
@@ -257,10 +265,15 @@ impl Traversal {
                         data.mtime = mtime;
                         data.size = file_size;
                         let entry_index = t.tree.add_node(data);
-                        
+
                         t.tree.add_edge(parent_node_idx, entry_index, ());
-                        
-                        info!("previous_depth={} depth={} {:?}", previous_depth, entry.depth, path_of(&t.tree, entry_index, None));
+
+                        info!(
+                            "previous_depth={} depth={} {:?}",
+                            previous_depth,
+                            entry.depth,
+                            path_of(&t.tree, entry_index, None)
+                        );
 
                         previous_node_idx = entry_index;
                         previous_depth = entry.depth;

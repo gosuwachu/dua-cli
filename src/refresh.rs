@@ -100,6 +100,8 @@ fn set_entry_info_or_panic(
         .expect("node for parent index we just retrieved");
     node.size = size;
     node.entry_count = entries_count;
+    assert!(node.is_dir);
+    node.is_complete = true;
 }
 
 fn parent_or_panic(tree: &mut RefreshTree, parent_node_idx: TreeIndex) -> TreeIndex {
@@ -111,7 +113,6 @@ fn parent_or_panic(tree: &mut RefreshTree, parent_node_idx: TreeIndex) -> TreeIn
 fn pop_or_panic(v: &mut Vec<EntryInfo>) -> EntryInfo {
     v.pop().expect("sizes per level to be in sync with graph")
 }
-
 
 #[cfg(not(windows))]
 fn size_on_disk(_parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> {
@@ -131,7 +132,10 @@ impl Refresh {
     ) -> Result<Option<Refresh>> {
         let mut t = {
             let mut tree = RefreshTree::new();
-            let root_index = tree.add_node(RefreshEntryData::default());
+            let root_index = tree.add_node(RefreshEntryData {
+                is_dir: true,
+                ..RefreshEntryData::default()
+            });
             Refresh {
                 tree,
                 root_index,
@@ -265,10 +269,15 @@ impl Refresh {
                         data.mtime = mtime;
                         data.size = file_size;
                         let entry_index = t.tree.add_node(data);
-                        
+
                         t.tree.add_edge(parent_node_idx, entry_index, ());
-                        
-                        info!("previous_depth={} depth={} {:?}", previous_depth, entry.depth, path_of(&t.tree, entry_index, None));
+
+                        info!(
+                            "previous_depth={} depth={} {:?}",
+                            previous_depth,
+                            entry.depth,
+                            path_of(&t.tree, entry_index, None)
+                        );
 
                         previous_node_idx = entry_index;
                         previous_depth = entry.depth;

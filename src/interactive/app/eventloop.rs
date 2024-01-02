@@ -12,6 +12,7 @@ use dua::{
     traverse::{EntryData, Traversal},
     WalkOptions, WalkResult,
 };
+use log::info;
 use std::path::PathBuf;
 use tui::backend::Backend;
 use tui_react::Terminal;
@@ -452,6 +453,8 @@ impl TerminalApp {
             Some(t) => t,
             None => return Ok(None),
         };
+
+        info!("tree: {:#?}", &traversal.tree);
 
         state.is_scanning = false;
         if !received_events {
