@@ -1,4 +1,4 @@
-use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle, WalkOptions, get_entry_or_panic};
+use crate::{crossdev, InodeFilter, Throttle, WalkOptions};
 use anyhow::Result;
 use filesize::PathExt;
 use log::info;
@@ -12,31 +12,35 @@ use std::{
 };
 
 pub type TreeIndex = NodeIndex;
-pub type Tree = StableGraph<EntryData, (), Directed>;
+pub type RefreshTree = StableGraph<RefreshEntryData, (), Directed>;
 
 #[derive(Eq, PartialEq, Clone)]
-pub struct EntryData {
+pub struct RefreshEntryData {
     pub name: PathBuf,
     /// The entry's size in bytes. If it's a directory, the size is the aggregated file size of all children
     pub size: u128,
     pub mtime: SystemTime,
     pub entry_count: Option<u64>,
     pub is_dir: bool,
+    pub is_complete: bool,
+    pub is_visited: bool,
 }
 
-impl Default for EntryData {
-    fn default() -> EntryData {
-        EntryData {
+impl Default for RefreshEntryData {
+    fn default() -> RefreshEntryData {
+        RefreshEntryData {
             name: PathBuf::default(),
             size: u128::default(),
             mtime: UNIX_EPOCH,
             entry_count: None,
             is_dir: false,
+            is_complete: false,
+            is_visited: false,
         }
     }
 }
 
-impl fmt::Debug for EntryData {
+impl fmt::Debug for RefreshEntryData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EntryData")
             .field("name", &self.name)
@@ -49,9 +53,9 @@ impl fmt::Debug for EntryData {
 
 /// The result of the previous filesystem traversal
 #[derive(Debug)]
-pub struct Traversal {
+pub struct Refresh {
     /// A tree representing the entire filestem traversal
-    pub tree: Tree,
+    pub tree: RefreshTree,
     /// The top-level node of the tree.
     pub root_index: TreeIndex,
     /// Amount of files or directories we have seen during the filesystem traversal
@@ -84,7 +88,7 @@ impl EntryInfo {
 }
 
 fn set_entry_info_or_panic(
-    tree: &mut Tree,
+    tree: &mut RefreshTree,
     node_idx: TreeIndex,
     EntryInfo {
         size,
@@ -98,7 +102,7 @@ fn set_entry_info_or_panic(
     node.entry_count = entries_count;
 }
 
-fn parent_or_panic(tree: &mut Tree, parent_node_idx: TreeIndex) -> TreeIndex {
+fn parent_or_panic(tree: &mut RefreshTree, parent_node_idx: TreeIndex) -> TreeIndex {
     tree.neighbors_directed(parent_node_idx, Direction::Incoming)
         .next()
         .expect("every node in the iteration has a parent")
@@ -119,16 +123,16 @@ fn size_on_disk(parent: &Path, name: &Path, meta: &Metadata) -> io::Result<u64> 
     parent.join(name).size_on_disk_fast(meta)
 }
 
-impl Traversal {
+impl Refresh {
     pub fn from_walk(
         mut walk_options: WalkOptions,
         input: Vec<PathBuf>,
-        mut update: impl FnMut(&mut Traversal) -> Result<bool>,
-    ) -> Result<Option<Traversal>> {
+        mut update: impl FnMut(&mut Refresh) -> Result<bool>,
+    ) -> Result<Option<Refresh>> {
         let mut t = {
-            let mut tree = Tree::new();
-            let root_index = tree.add_node(EntryData::default());
-            Traversal {
+            let mut tree = RefreshTree::new();
+            let root_index = tree.add_node(RefreshEntryData::default());
+            Refresh {
                 tree,
                 root_index,
                 entries_traversed: 0,
@@ -165,7 +169,7 @@ impl Traversal {
                 .into_iter()
             {
                 t.entries_traversed += 1;
-                let mut data = EntryData::default();
+                let mut data = RefreshEntryData::default();
                 match entry {
                     Ok(entry) => {
                         data.name = if entry.depth < 1 {
@@ -193,6 +197,8 @@ impl Traversal {
                                             })
                                             as u128;
                                     }
+                                    // files are complete immediately
+                                    data.is_complete = true;
                                 } else {
                                     data.entry_count = Some(0);
                                     data.is_dir = true;
@@ -209,6 +215,8 @@ impl Traversal {
                             }
                             Some(Err(_)) => {
                                 t.io_errors += 1;
+                                // if there is an error getting the metadata the item is complete
+                                data.is_complete = true;
                             }
                             None => {}
                         }
@@ -315,8 +323,17 @@ impl Traversal {
     }
 }
 
+fn get_entry_or_panic(tree: &RefreshTree, node_idx: TreeIndex) -> &RefreshEntryData {
+    tree.node_weight(node_idx)
+        .expect("node should always be retrievable with valid index")
+}
+
+fn get_size_or_panic(tree: &RefreshTree, node_idx: TreeIndex) -> u128 {
+    get_entry_or_panic(tree, node_idx).size
+}
+
 // TODO: this is copied here for debugging
-fn path_of(tree: &Tree, mut node_idx: TreeIndex, glob_root: Option<TreeIndex>) -> PathBuf {
+fn path_of(tree: &RefreshTree, mut node_idx: TreeIndex, glob_root: Option<TreeIndex>) -> PathBuf {
     const THE_ROOT: usize = 1;
     let mut entries = Vec::new();
 
@@ -349,9 +366,9 @@ mod tests {
     #[test]
     fn size_of_entry_data() {
         assert!(
-            std::mem::size_of::<EntryData>() <= 80,
+            std::mem::size_of::<RefreshEntryData>() <= 80,
             "the size of this ({}) should not exceed 80 as it affects overall memory consumption",
-            std::mem::size_of::<EntryData>()
+            std::mem::size_of::<RefreshEntryData>()
         );
     }
 }
