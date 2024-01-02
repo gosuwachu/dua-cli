@@ -1,6 +1,7 @@
-use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle, WalkOptions};
+use crate::{crossdev, get_size_or_panic, InodeFilter, Throttle, WalkOptions, get_entry_or_panic};
 use anyhow::Result;
 use filesize::PathExt;
+use log::info;
 use petgraph::{graph::NodeIndex, stable_graph::StableGraph, Directed, Direction};
 use std::{
     fmt,
@@ -230,6 +231,7 @@ impl Traversal {
                             }
                             (n, p) if n < p => {
                                 for _ in n..p {
+                                    // that directory is "complete" at this point
                                     set_entry_info_or_panic(
                                         &mut t.tree,
                                         parent_node_idx,
@@ -245,11 +247,13 @@ impl Traversal {
                                 }
                                 current_directory_at_depth.size += file_size;
                                 *current_directory_at_depth.entries_count.get_or_insert(0) += 1;
-                                set_entry_info_or_panic(
-                                    &mut t.tree,
-                                    parent_node_idx,
-                                    current_directory_at_depth,
-                                );
+
+                                // TODO: I don't think this is necessary?
+                                // set_entry_info_or_panic(
+                                //     &mut t.tree,
+                                //     parent_node_idx,
+                                //     current_directory_at_depth,
+                                // );
                             }
                             _ => {
                                 current_directory_at_depth.size += file_size;
@@ -260,8 +264,11 @@ impl Traversal {
                         data.mtime = mtime;
                         data.size = file_size;
                         let entry_index = t.tree.add_node(data);
-
+                        
                         t.tree.add_edge(parent_node_idx, entry_index, ());
+                        
+                        info!("previous_depth={} depth={} {:?}", previous_depth, entry.depth, path_of(&t.tree, entry_index, None));
+
                         previous_node_idx = entry_index;
                         previous_depth = entry.depth;
                     }
@@ -313,6 +320,33 @@ impl Traversal {
             .map(|idx| get_size_or_panic(&self.tree, idx))
             .sum()
     }
+}
+
+// TODO: this is copied here for debugging
+fn path_of(tree: &Tree, mut node_idx: TreeIndex, glob_root: Option<TreeIndex>) -> PathBuf {
+    const THE_ROOT: usize = 1;
+    let mut entries = Vec::new();
+
+    let mut iter = tree.neighbors_directed(node_idx, petgraph::Incoming);
+    while let Some(parent_idx) = iter.next() {
+        if let Some(glob_root) = glob_root {
+            if glob_root == parent_idx {
+                continue;
+            }
+        }
+        entries.push(get_entry_or_panic(tree, node_idx));
+        node_idx = parent_idx;
+        iter = tree.neighbors_directed(node_idx, petgraph::Incoming);
+    }
+    entries.push(get_entry_or_panic(tree, node_idx));
+    entries
+        .iter()
+        .rev()
+        .skip(THE_ROOT)
+        .fold(PathBuf::new(), |mut acc, entry| {
+            acc.push(&entry.name);
+            acc
+        })
 }
 
 #[cfg(test)]
