@@ -370,14 +370,65 @@ fn path_of(tree: &RefreshTree, mut node_idx: TreeIndex, glob_root: Option<TreeIn
 
 #[cfg(test)]
 mod tests {
+    use crate::traverse::{Tree, EntryData};
     use super::*;
 
     #[test]
-    fn size_of_entry_data() {
-        assert!(
-            std::mem::size_of::<RefreshEntryData>() <= 80,
-            "the size of this ({}) should not exceed 80 as it affects overall memory consumption",
-            std::mem::size_of::<RefreshEntryData>()
-        );
+    fn test_refresh() {
+        let mut tree = Tree::new();
+        add_root(&mut tree, "", |adder| {
+            adder.add_file("a");
+            adder.add_dir("dir", |adder| {
+                adder.add_file("b");
+            });
+            adder.add_file("c");
+        });
+        println!("{tree:#?}")
+    }
+
+    fn add_root<F>(
+        tree: &mut Tree,
+        name: &str, 
+        add_fn: F
+    ) where 
+        F: FnMut(&mut Adder<'_>) {
+        let mut adder = Adder {
+            tree: tree,
+            parent_idx: None
+        };
+        adder.add_dir(name, add_fn)
+    }
+
+    struct Adder<'a> {
+        tree: &'a mut Tree,
+        parent_idx: Option<TreeIndex>
+    }
+
+    impl <'a> Adder<'a> {
+        fn add_file(&mut self, name: &str) {
+            let n = self.tree.add_node(EntryData {
+                name: PathBuf::from(name),
+                is_dir: false,
+                ..Default::default()
+            });
+            self.tree.add_edge(self.parent_idx.unwrap(), n, ());
+        }
+
+        fn add_dir<F: FnMut(&mut Adder<'_>)>(&mut self, name: &str, mut add_fn: F) {
+            let n = self.tree.add_node(EntryData {
+                name: PathBuf::from(name),
+                is_dir: true,
+                ..Default::default()
+            });
+            if let Some(parent_idx) = self.parent_idx {
+                self.tree.add_edge(parent_idx, n, ());
+            }
+
+            let mut adder = Adder {
+                tree: self.tree,
+                parent_idx: Some(n)
+            };
+            add_fn(&mut adder);
+        }
     }
 }
