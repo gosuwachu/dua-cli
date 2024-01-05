@@ -370,41 +370,47 @@ fn path_of(tree: &RefreshTree, mut node_idx: TreeIndex, glob_root: Option<TreeIn
 
 #[cfg(test)]
 mod tests {
-    use crate::traverse::{Tree, EntryData};
     use super::*;
+    use crate::traverse::{EntryData, Tree};
 
     #[test]
     fn test_refresh() {
         let mut tree = Tree::new();
-        add_root(&mut tree, "", |adder| {
-            adder.add_file("a");
-            adder.add_dir("dir", |adder| {
-                adder.add_file("b");
+
+        let mut tree_builder = TreeBuilder::new(&mut tree);
+        tree_builder.add_dir("", |b| {
+            b.add_file("a");
+            b.add_dir("dir", |b| {
+                b.add_file("b");
             });
-            adder.add_file("c");
+            b.add_file("c");
+        });
+
+        let mut refresh_tree = RefreshTree::new();
+        let mut refresh_tree_builder = RefreshTreeBuilder::new(&mut refresh_tree);
+        refresh_tree_builder.add_dir("", true, |b| {
+            b.add_file("a");
+            b.add_dir("dir", true, |b| {
+                b.add_file("b");
+            });
+            b.add_file("c");
         });
         println!("{tree:#?}")
     }
 
-    fn add_root<F>(
-        tree: &mut Tree,
-        name: &str, 
-        add_fn: F
-    ) where 
-        F: FnMut(&mut Adder<'_>) {
-        let mut adder = Adder {
-            tree: tree,
-            parent_idx: None
-        };
-        adder.add_dir(name, add_fn)
-    }
-
-    struct Adder<'a> {
+    struct TreeBuilder<'a> {
         tree: &'a mut Tree,
-        parent_idx: Option<TreeIndex>
+        parent_idx: Option<TreeIndex>,
     }
 
-    impl <'a> Adder<'a> {
+    impl<'a> TreeBuilder<'a> {
+        fn new(tree: &'a mut Tree) -> TreeBuilder<'a> {
+            TreeBuilder {
+                tree,
+                parent_idx: None,
+            }
+        }
+
         fn add_file(&mut self, name: &str) {
             let n = self.tree.add_node(EntryData {
                 name: PathBuf::from(name),
@@ -414,7 +420,7 @@ mod tests {
             self.tree.add_edge(self.parent_idx.unwrap(), n, ());
         }
 
-        fn add_dir<F: FnMut(&mut Adder<'_>)>(&mut self, name: &str, mut add_fn: F) {
+        fn add_dir<F: FnMut(&mut TreeBuilder<'_>)>(&mut self, name: &str, mut add_fn: F) {
             let n = self.tree.add_node(EntryData {
                 name: PathBuf::from(name),
                 is_dir: true,
@@ -424,9 +430,56 @@ mod tests {
                 self.tree.add_edge(parent_idx, n, ());
             }
 
-            let mut adder = Adder {
+            let mut adder = TreeBuilder {
                 tree: self.tree,
-                parent_idx: Some(n)
+                parent_idx: Some(n),
+            };
+            add_fn(&mut adder);
+        }
+    }
+
+    struct RefreshTreeBuilder<'a> {
+        tree: &'a mut RefreshTree,
+        parent_idx: Option<TreeIndex>,
+    }
+
+    impl<'a> RefreshTreeBuilder<'a> {
+        fn new(tree: &'a mut RefreshTree) -> RefreshTreeBuilder<'a> {
+            RefreshTreeBuilder {
+                tree,
+                parent_idx: None,
+            }
+        }
+
+        fn add_file(&mut self, name: &str) {
+            let n = self.tree.add_node(RefreshEntryData {
+                name: PathBuf::from(name),
+                is_dir: false,
+                is_complete: true,
+                ..Default::default()
+            });
+            self.tree.add_edge(self.parent_idx.unwrap(), n, ());
+        }
+
+        fn add_dir<F: FnMut(&mut RefreshTreeBuilder<'_>)>(
+            &mut self,
+            name: &str,
+            is_complete: bool,
+            mut add_fn: F,
+        ) {
+            let n = self.tree.add_node(RefreshEntryData {
+                name: PathBuf::from(name),
+                is_dir: true,
+                is_complete: is_complete,
+                ..Default::default()
+            });
+            if let Some(parent_idx) = self.parent_idx {
+                self.tree.add_edge(parent_idx, n, ());
+            }
+
+            let mut adder = RefreshTreeBuilder {
+                tree: self.tree,
+                parent_idx: Some(n),
             };
             add_fn(&mut adder);
         }
