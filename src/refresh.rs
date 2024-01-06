@@ -370,32 +370,76 @@ fn path_of(tree: &RefreshTree, mut node_idx: TreeIndex, glob_root: Option<TreeIn
 
 #[cfg(test)]
 mod tests {
+    use log::warn;
+    use petgraph::Direction::Outgoing;
+
     use super::*;
     use crate::traverse::{EntryData, Tree};
 
     #[test]
     fn test_refresh() {
         let mut tree = Tree::new();
-
         let mut tree_builder = TreeBuilder::new(&mut tree);
-        tree_builder.add_dir("", |b| {
+        let tree_root = tree_builder.add_dir("", |b| {
             b.add_file("a");
             b.add_dir("dir", |b| {
                 b.add_file("b");
             });
-            b.add_file("c");
         });
+        println!("{tree:#?}");
 
         let mut refresh_tree = RefreshTree::new();
         let mut refresh_tree_builder = RefreshTreeBuilder::new(&mut refresh_tree);
-        refresh_tree_builder.add_dir("", true, |b| {
+        let refresh_tree_root = refresh_tree_builder.add_dir("", true, |b| {
             b.add_file("a");
             b.add_dir("dir", true, |b| {
                 b.add_file("b");
             });
             b.add_file("c");
         });
-        println!("{tree:#?}")
+        println!("{refresh_tree:#?}");
+
+        update_tree(&mut tree, tree_root, &mut refresh_tree, refresh_tree_root);
+    }
+
+    fn update_tree(tree: &mut Tree, root: TreeIndex, refresh_tree: &mut RefreshTree, refresh_root: TreeIndex) {
+        let Some(refresh_entry) = refresh_tree.node_weight(refresh_root) else {
+            warn!("refresh tree index not found: {refresh_root:#?}");
+            return;
+        };
+
+        // TODO: if refresh entry already visited then skip
+
+        let tree_entry = get_tree_entry(tree, root, &refresh_entry);
+        match tree_entry {
+            Some(tree_entry) => {
+                if tree_entry.is_dir {
+                    // TODO: if refresh entry is not complete don't update the directory entry
+                    // TODO: don't mark as visited if not completed.
+                    // TODO: go inside the directory
+                } else {
+                    // TODO: update file entry
+                    // TODO: mark as visited
+                }
+            },
+            None => {
+                // TODO: add subtree
+            }
+        }
+
+        if refresh_entry.is_complete && !refresh_entry.is_visited {
+            // TODO: delete elements that don't exist in the refresh tree
+        }
+    }
+
+    fn get_tree_entry<'a>(tree: &'a Tree, parent_idx: TreeIndex, refresh_entry: &'a RefreshEntryData) -> Option<&'a EntryData> {
+        for idx in tree.neighbors_directed(parent_idx, Outgoing) {
+            let n = tree.node_weight(idx).unwrap();
+            if n.name == refresh_entry.name && n.is_dir == refresh_entry.is_dir {
+                return Some(n);
+            }
+        }
+        None
     }
 
     struct TreeBuilder<'a> {
@@ -420,7 +464,7 @@ mod tests {
             self.tree.add_edge(self.parent_idx.unwrap(), n, ());
         }
 
-        fn add_dir<F: FnMut(&mut TreeBuilder<'_>)>(&mut self, name: &str, mut add_fn: F) {
+        fn add_dir<F: FnMut(&mut TreeBuilder<'_>)>(&mut self, name: &str, mut add_fn: F) -> TreeIndex {
             let n = self.tree.add_node(EntryData {
                 name: PathBuf::from(name),
                 is_dir: true,
@@ -435,6 +479,7 @@ mod tests {
                 parent_idx: Some(n),
             };
             add_fn(&mut adder);
+            n
         }
     }
 
@@ -466,7 +511,7 @@ mod tests {
             name: &str,
             is_complete: bool,
             mut add_fn: F,
-        ) {
+        ) -> TreeIndex {
             let n = self.tree.add_node(RefreshEntryData {
                 name: PathBuf::from(name),
                 is_dir: true,
@@ -482,6 +527,7 @@ mod tests {
                 parent_idx: Some(n),
             };
             add_fn(&mut adder);
+            n
         }
     }
 }
